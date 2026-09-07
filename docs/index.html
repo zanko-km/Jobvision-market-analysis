@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>💼 JobVision Market Analysis</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>💼 JobVision Job Market Overview</h1>
+  <p class="subtitle">نمای کلی بازار کار ایران بر اساس آگهی‌های JobVision</p>
+  <p class="updated-at" id="updatedAt"></p>
+</header>
+
+<section class="search-bar">
+  <input id="searchInput" type="text" placeholder="عنوان شغلی یا شرکت... مثلاً Python Developer" />
+  <button id="searchBtn">🔍 جستجو</button>
+  <button id="backBtn" class="hidden">← بازگشت به نمای کلی</button>
+</section>
+
+<main id="app">
+  <p id="loading">در حال بارگذاری داده‌ها...</p>
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
