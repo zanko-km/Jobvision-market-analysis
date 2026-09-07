@@ -1,17 +1,26 @@
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
 from scraper import get_all_jobs, jobs_to_dataframe
 
 
+def clean_value(v):
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    return v
+
+
 def main():
     jobs = get_all_jobs()
     df = jobs_to_dataframe(jobs)
 
-    df = df.where(df.notnull(), None)
-
     records = df.to_dict(orient="records")
+    records = [
+        {k: clean_value(v) for k, v in row.items()}
+        for row in records
+    ]
 
     output = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
