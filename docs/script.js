@@ -35,18 +35,96 @@ backBtn.addEventListener("click", () => {
   renderOverview(ALL_JOBS);
 });
 
-function doSearch() {
-  const q = searchInput.value.trim().toLowerCase();
+const JOBVISION_API = "https://candidateapi.jobvision.ir/api/v1/JobPost/List";
+const PAGE_SIZE = 30;
+const MAX_LIVE_PAGES = 10; // cap how many pages we pull live (10 * 30 = 300 jobs) for speed
+
+async function fetchLivePage(keyword, page) {
+  const res = await fetch(JOBVISION_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jobCategoryUrlTitle: null,
+      keyword: keyword,
+      locationWrapper: null,
+      pageSize: PAGE_SIZE,
+      requestedPage: page,
+      sortBy: 1,
+      searchId: null,
+    }),
+  });
+  if (!res.ok) throw new Error("bad response " + res.status);
+  const json = await res.json();
+  return json.data; // { jobPosts, jobPostCount }
+}
+
+function rawJobToRecord(job) {
+  const properties = job.properties || {};
+  const company = job.company || {};
+  const location = job.location || {};
+  const province = location.province || {};
+  const city = location.city || {};
+  const workType = job.workType || {};
+  const seniority = job.seniorityLevel || {};
+
+  return {
+    id: job.id,
+    title: job.title,
+    company: company.nameFa,
+    province: province.titleFa,
+    city: city.titleFa,
+    categories: (job.jobCategories || []).map((x) => x.titleFa).join(", "),
+    work_type: workType.titleFa,
+    seniority: seniority.titleFa,
+    is_remote: properties.isRemote,
+    salary: (job.salary || {}).titleFa,
+    activation_date: (job.activationTime || {}).date,
+  };
+}
+
+async function liveSearch(keyword) {
+  const first = await fetchLivePage(keyword, 1);
+  const total = first.data ? first.data.jobPostCount : first.jobPostCount;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const pagesToFetch = Math.min(totalPages, MAX_LIVE_PAGES);
+
+  let jobs = [...(first.jobPosts || [])];
+
+  const pagePromises = [];
+  for (let p = 2; p <= pagesToFetch; p++) {
+    pagePromises.push(fetchLivePage(keyword, p));
+  }
+  const rest = await Promise.all(pagePromises);
+  rest.forEach((d) => jobs.push(...(d.jobPosts || [])));
+
+  return {
+    total,
+    shown: jobs.length,
+    jobs: jobs.map(rawJobToRecord),
+  };
+}
+
+async function doSearch() {
+  const q = searchInput.value.trim();
   if (!q) return;
 
-  const filtered = ALL_JOBS.filter((j) => {
-    const title = (j.title || "").toLowerCase();
-    const company = (j.company || "").toLowerCase();
-    return title.includes(q) || company.includes(q);
-  });
-
   backBtn.classList.remove("hidden");
-  renderSearchResults(filtered, searchInput.value.trim());
+  app.innerHTML = `<p class="info-box">در حال جستجوی زنده در JobVision...</p>`;
+
+  try {
+    const result = await liveSearch(q);
+    renderSearchResults(result.jobs, q, result.total);
+  } catch (err) {
+    // Likely blocked by CORS or network - fall back to filtering the cached dataset
+    console.warn("Live search failed, falling back to cached data:", err);
+    const qLower = q.toLowerCase();
+    const filtered = ALL_JOBS.filter((j) => {
+      const title = (j.title || "").toLowerCase();
+      const company = (j.company || "").toLowerCase();
+      return title.includes(qLower) || company.includes(qLower);
+    });
+    renderSearchResults(filtered, q, filtered.length, true);
+  }
 }
 
 function destroyCharts() {
@@ -167,13 +245,22 @@ function renderOverview(jobs) {
   makeBarChart("chartsGrid", "📋 نوع همکاری", countBy(jobs, "work_type"));
 }
 
-function renderSearchResults(jobs, query) {
+function renderSearchResults(jobs, query, totalCount, isFallback) {
   destroyCharts();
 
   if (!jobs.length) {
     app.innerHTML = `<p class="info-box">هیچ آگهی‌ای برای «${escapeHtml(query)}» پیدا نشد.</p>`;
     return;
   }
+
+  const total = totalCount !== undefined ? totalCount : jobs.length;
+  const shownNote =
+    total > jobs.length
+      ? `(${jobs.length.toLocaleString("fa-IR")} مورد برای نمودار/جدول بارگذاری شد)`
+      : "";
+  const fallbackNote = isFallback
+    ? `<br/><small>⚠️ دسترسی زنده به API ممکن نشد؛ این نتایج از داده‌ی ذخیره‌شده (عنوان/شرکت) فیلتر شدن.</small>`
+    : "";
 
   const salaryInfo = parseSalaryAvg(jobs);
   const salaryHtml = salaryInfo
@@ -198,7 +285,7 @@ function renderSearchResults(jobs, query) {
     .join("");
 
   app.innerHTML = `
-    <p class="info-box">${jobs.length.toLocaleString("fa-IR")} آگهی مطابق «${escapeHtml(query)}» پیدا شد</p>
+    <p class="info-box">${total.toLocaleString("fa-IR")} آگهی مطابق «${escapeHtml(query)}» پیدا شد ${shownNote}${fallbackNote}</p>
     ${salaryHtml}
     <div class="section-title">📊 نمودارها</div>
     <div class="charts-grid" id="chartsGrid"></div>
