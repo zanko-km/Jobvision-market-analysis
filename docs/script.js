@@ -38,7 +38,7 @@ backBtn.addEventListener("click", () => {
 // Point this at your deployed Cloudflare Worker (see jobvision-proxy-worker.js).
 // Direct browser -> candidateapi.jobvision.ir calls are blocked by CORS,
 // so we go through a small proxy that adds the right headers.
-const JOBVISION_API = "https://REPLACE-WITH-YOUR-WORKER.workers.dev";
+const JOBVISION_API = "https://late-recipe-0638.zankokarimy.workers.dev";
 const PAGE_SIZE = 30;
 const MAX_LIVE_PAGES = 10; // cap how many pages we pull live (10 * 30 = 300 jobs) for speed
 
