@@ -1,13 +1,17 @@
-import requests
-import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
+import requests
 
 URL = "https://candidateapi.jobvision.ir/api/v1/JobPost/List"
 PAGE_SIZE = 30
 
 
-def get_page(session, page):
+def get_page(session, page, category = None, keyword = None, location = None):
     payload = {
+        "jobCategoryUrlTitle": category,
+        "keyword": keyword,
+        "locationWrapper": location,
         "pageSize": PAGE_SIZE,
         "requestedPage": page,
         "sortBy": 1,
@@ -126,3 +130,48 @@ def jobs_to_dataframe(jobs):
         })
 
     return pd.DataFrame(rows)
+
+def search_jobs(keyword):
+    session = requests.Session()
+    
+    _, total_jobs = get_page(session, 1, keyword=keyword)
+    total_pages = (total_jobs + PAGE_SIZE - 1) // PAGE_SIZE
+
+    print(f"Total jobs: {total_jobs}")
+    print(f"Total pages: {total_pages}")
+
+    all_jobs = []
+
+    MAX_WORKERS = 15
+
+    def fetch_page(page):
+        try:
+            jobs, _ = get_page(session, page, keyword=keyword)
+            return page, jobs
+        except Exception as e:
+            print(f"Error on page {page}: {e}")
+            return page, []
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+
+        futures = [
+            executor.submit(fetch_page, page)
+            for page in range(1, total_pages + 1)
+        ]
+
+        results = []
+
+        for future in as_completed(futures):
+            page, jobs = future.result()
+
+            results.append((page, jobs))
+
+            print(f"Page {page}/{total_pages}")
+
+    results.sort(key=lambda x: x[0])
+
+    for _, jobs in results:
+        all_jobs.extend(jobs)
+
+    return all_jobs
+    

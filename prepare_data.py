@@ -1,4 +1,5 @@
 import json
+
 import pandas as pd
 
 with open("jobvision_jobs.jsonl", "r", encoding="utf-8") as f:
