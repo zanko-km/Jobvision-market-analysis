@@ -1,13 +1,36 @@
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 URL = "https://candidateapi.jobvision.ir/api/v1/JobPost/List"
 PAGE_SIZE = 30
+MAX_WORKERS = 5
+REQUEST_TIMEOUT = 60
+PAGE_RETRIES = 3
 
 
-def get_page(session, page, category = None, keyword = None, location = None):
+def make_session():
+    session = requests.Session()
+
+    retry = Retry(
+        total=3,
+        backoff_factor=1.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["POST", "GET"],
+    )
+
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=MAX_WORKERS, pool_maxsize=MAX_WORKERS)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
+
+
+def get_page(session, page, category=None, keyword=None, location=None):
     payload = {
         "jobCategoryUrlTitle": category,
         "keyword": keyword,
@@ -18,7 +41,7 @@ def get_page(session, page, category = None, keyword = None, location = None):
         "searchId": None
     }
 
-    response = session.post(URL, json=payload, timeout=30)
+    response = session.post(URL, json=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
 
     data = response.json()["data"]
@@ -26,52 +49,62 @@ def get_page(session, page, category = None, keyword = None, location = None):
     return data["jobPosts"], data["jobPostCount"]
 
 
+def fetch_page_with_retry(session, page, keyword=None):
+    last_error = None
+
+    for attempt in range(1, PAGE_RETRIES + 1):
+        try:
+            jobs, _ = get_page(session, page, keyword=keyword)
+            return page, jobs
+        except Exception as e:
+            last_error = e
+            if attempt < PAGE_RETRIES:
+                sleep_for = 2 * attempt
+                print(f"Page {page} failed (attempt {attempt}/{PAGE_RETRIES}): {e} - retrying in {sleep_for}s")
+                time.sleep(sleep_for)
+
+    print(f"Page {page} failed after {PAGE_RETRIES} attempts: {last_error}")
+    return page, []
 
 
-def get_all_jobs():
-    session = requests.Session()
+def _fetch_all_pages(keyword=None):
+    session = make_session()
 
-    _, total_jobs = get_page(session, 1)
-
+    _, total_jobs = get_page(session, 1, keyword=keyword)
     total_pages = (total_jobs + PAGE_SIZE - 1) // PAGE_SIZE
 
     print(f"Total jobs: {total_jobs}")
     print(f"Total pages: {total_pages}")
 
-    all_jobs = []
-
-    MAX_WORKERS = 15
-
-    def fetch_page(page):
-        try:
-            jobs, _ = get_page(session, page)
-            return page, jobs
-        except Exception as e:
-            print(f"Error on page {page}: {e}")
-            return page, []
+    results = []
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
 
         futures = [
-            executor.submit(fetch_page, page)
+            executor.submit(fetch_page_with_retry, session, page, keyword)
             for page in range(1, total_pages + 1)
         ]
 
-        results = []
-
         for future in as_completed(futures):
             page, jobs = future.result()
-
             results.append((page, jobs))
-
             print(f"Page {page}/{total_pages}")
 
     results.sort(key=lambda x: x[0])
 
+    all_jobs = []
     for _, jobs in results:
         all_jobs.extend(jobs)
 
     return all_jobs
+
+
+def get_all_jobs():
+    return _fetch_all_pages()
+
+
+def search_jobs(keyword):
+    return _fetch_all_pages(keyword=keyword)
 
 
 def jobs_to_dataframe(jobs):
@@ -130,48 +163,3 @@ def jobs_to_dataframe(jobs):
         })
 
     return pd.DataFrame(rows)
-
-def search_jobs(keyword):
-    session = requests.Session()
-    
-    _, total_jobs = get_page(session, 1, keyword=keyword)
-    total_pages = (total_jobs + PAGE_SIZE - 1) // PAGE_SIZE
-
-    print(f"Total jobs: {total_jobs}")
-    print(f"Total pages: {total_pages}")
-
-    all_jobs = []
-
-    MAX_WORKERS = 15
-
-    def fetch_page(page):
-        try:
-            jobs, _ = get_page(session, page, keyword=keyword)
-            return page, jobs
-        except Exception as e:
-            print(f"Error on page {page}: {e}")
-            return page, []
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-
-        futures = [
-            executor.submit(fetch_page, page)
-            for page in range(1, total_pages + 1)
-        ]
-
-        results = []
-
-        for future in as_completed(futures):
-            page, jobs = future.result()
-
-            results.append((page, jobs))
-
-            print(f"Page {page}/{total_pages}")
-
-    results.sort(key=lambda x: x[0])
-
-    for _, jobs in results:
-        all_jobs.extend(jobs)
-
-    return all_jobs
-    
