@@ -51,9 +51,13 @@ async function fetchLivePage(keyword, page) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      page,
+      jobCategoryUrlTitle: null,
+      keyword: keyword,
+      locationWrapper: null,
       pageSize: PAGE_SIZE,
-      keyword,
+      requestedPage: page,
+      sortBy: 1,
+      searchId: null,
     }),
   });
 
@@ -63,96 +67,87 @@ async function fetchLivePage(keyword, page) {
     );
   }
 
-  return response.json();
+  const json = await response.json();
+
+  return json.data;
 }
 
-
 function rawJobToRecord(job) {
+  const properties = job.properties || {};
+  const company = job.company || {};
+  const location = job.location || {};
+  const province = location.province || {};
+  const city = location.city || {};
+  const workType = job.workType || {};
+  const seniority = job.seniorityLevel || {};
+
   return {
     id: job.id,
 
-    title:
-      job.title ??
-      job.jobTitle ??
-      "",
+    title: job.title || "",
 
-    company:
-      job.company ??
-      job.companyName ??
-      "",
+    company: company.nameFa || "",
 
-    province:
-      job.province ??
-      job.provinceName ??
-      "",
+    province: province.titleFa || "",
 
-    city:
-      job.city ??
-      job.cityName ??
-      "",
+    city: city.titleFa || "",
 
-    categories:
-      job.categories ??
-      [],
+    categories: (job.jobCategories || [])
+      .map((x) => x.titleFa)
+      .filter(Boolean)
+      .join(", "),
 
-    work_type:
-      job.work_type ??
-      job.workType ??
-      "",
+    work_type: workType.titleFa || "",
 
-    seniority:
-      job.seniority ??
-      job.seniorityLevel ??
-      "",
+    seniority: seniority.titleFa || "",
 
-    is_remote:
-      job.is_remote ??
-      job.isRemote ??
-      false,
+    is_remote: properties.isRemote || false,
 
-    salary:
-      job.salary ??
-      "",
+    salary: (job.salary || {}).titleFa || "",
 
     activation_date:
-      job.activation_date ??
-      job.activationDate ??
-      "",
+      (job.activationTime || {}).date || "",
   };
 }
 
 
 async function liveSearch(keyword) {
-  const pages = [];
+  const first = await fetchLivePage(keyword, 1);
+
+  const total = first?.jobPostCount || 0;
+
+  const totalPages = Math.ceil(
+    total / PAGE_SIZE
+  );
+
+  const pagesToFetch = Math.min(
+    totalPages,
+    MAX_LIVE_PAGES
+  );
+
+  let jobs = [
+    ...(first?.jobPosts || [])
+  ];
+
+  const pagePromises = [];
 
   for (
-    let page = 1;
-    page <= MAX_LIVE_PAGES;
+    let page = 2;
+    page <= pagesToFetch;
     page++
   ) {
-    pages.push(
+    pagePromises.push(
       fetchLivePage(keyword, page)
     );
   }
 
-  const responses = await Promise.all(pages);
+  const rest =
+    await Promise.all(pagePromises);
 
-  const jobs = [];
-
-  for (const response of responses) {
-    const items =
-      response?.data?.items ??
-      response?.data ??
-      response?.items ??
-      [];
-
-    if (!Array.isArray(items)) {
-      continue;
-    }
-
-    for (const job of items) {
-      jobs.push(rawJobToRecord(job));
-    }
+  for (const pageData of rest) {
+    jobs.push(
+      ...(pageData?.jobPosts || [])
+    );
   }
 
   /*
@@ -170,7 +165,7 @@ async function liveSearch(keyword) {
     unique.push(job);
   }
 
-  return unique;
+  return unique.map(rawJobToRecord);
 }
 
 
