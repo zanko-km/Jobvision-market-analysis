@@ -2,7 +2,7 @@ const JOBVISION_API =
   "https://late-recipe-0638.zankokarimy.workers.dev";
 
 const PAGE_SIZE = 30;
-const MAX_LIVE_PAGES = 10;
+const MAX_LIVE_PAGES = Infinity;
 const SEARCH_TIMEOUT_MS = 20000;
 
 // Number of simultaneous requests to the Worker job-detail endpoint.
