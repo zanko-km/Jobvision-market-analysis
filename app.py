@@ -95,9 +95,7 @@ if search_clicked:
 
 
 
-if st.session_state.search_results is not None:
-
-    if st.button("← Back to Market Overview"):
+if st.session_state.search_results is not None and st.button("← Back to Market Overview"):
 
         st.session_state.search_results = None
         st.session_state.search_query = None
@@ -1088,10 +1086,20 @@ def render_search_analysis(df, query):
     st.subheader(
         "📄 Matching Job Offers"
     )
-
+    display_df = df.copy()
+    display_df["JobVision"] = display_df["id"].apply(
+        lambda job_id: f"https://jobvision.ir/jobs/{int(job_id)}"
+    )
+    
     st.dataframe(
         df,
         use_container_width=True,
+        column_config={
+            "JobVision": st.column_config.LinkColumn(
+                "JobVision",
+                display_text="View Job",
+            ),
+        },
     )
 
 
