@@ -1,318 +1,897 @@
+const JOBVISION_API =
+  "https://late-recipe-0638.zankokarimy.workers.dev";
+
+const PAGE_SIZE = 30;
+const MAX_LIVE_PAGES = 10;
+const DETAIL_CONCURRENCY = 5;
+
 let ALL_JOBS = [];
-let charts = [];
+let currentSearchResults = [];
 
-const app = document.getElementById("app");
-const searchInput = document.getElementById("searchInput");
-const searchBtn = document.getElementById("searchBtn");
-const backBtn = document.getElementById("backBtn");
-const updatedAtEl = document.getElementById("updatedAt");
+const jobDetailCache = new Map();
 
-init();
 
-async function init() {
-  try {
-    const res = await fetch("data/jobs.json", { cache: "no-store" });
-    const data = await res.json();
-    ALL_JOBS = data.jobs || [];
+// ============================================================
+// Utility
+// ============================================================
 
-    if (data.generated_at) {
-      const d = new Date(data.generated_at);
-      updatedAtEl.textContent = "آخرین به‌روزرسانی: " + d.toLocaleString("fa-IR");
-    }
-
-    renderOverview(ALL_JOBS);
-  } catch (err) {
-    app.innerHTML = `<p class="info-box">خطا در بارگذاری داده‌ها: ${err}</p>`;
-  }
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
-searchBtn.addEventListener("click", doSearch);
-searchInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doSearch();
-});
-backBtn.addEventListener("click", () => {
-  backBtn.classList.add("hidden");
-  renderOverview(ALL_JOBS);
-});
 
-// Point this at your deployed Cloudflare Worker (see jobvision-proxy-worker.js).
-// Direct browser -> candidateapi.jobvision.ir calls are blocked by CORS,
-// so we go through a small proxy that adds the right headers.
-const JOBVISION_API = "https://late-recipe-0638.zankokarimy.workers.dev";
-const PAGE_SIZE = 30;
-const MAX_LIVE_PAGES = 10; // cap how many pages we pull live (10 * 30 = 300 jobs) for speed
+function normalizeSkillName(name) {
+  return String(name ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
+function normalizeSkillKey(name) {
+  return normalizeSkillName(name).toLowerCase();
+}
+
+
+// ============================================================
+// JobVision Search
+// ============================================================
 
 async function fetchLivePage(keyword, page) {
-  const res = await fetch(JOBVISION_API, {
+  const response = await fetch(JOBVISION_API, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
-      jobCategoryUrlTitle: null,
-      keyword: keyword,
-      locationWrapper: null,
+      page,
       pageSize: PAGE_SIZE,
-      requestedPage: page,
-      sortBy: 1,
-      searchId: null,
+      keyword,
     }),
   });
-  if (!res.ok) throw new Error("bad response " + res.status);
-  const json = await res.json();
-  return json.data; // { jobPosts, jobPostCount }
+
+  if (!response.ok) {
+    throw new Error(
+      `JobVision API returned ${response.status}`
+    );
+  }
+
+  return response.json();
 }
+
 
 function rawJobToRecord(job) {
-  const properties = job.properties || {};
-  const company = job.company || {};
-  const location = job.location || {};
-  const province = location.province || {};
-  const city = location.city || {};
-  const workType = job.workType || {};
-  const seniority = job.seniorityLevel || {};
-
   return {
     id: job.id,
-    title: job.title,
-    company: company.nameFa,
-    province: province.titleFa,
-    city: city.titleFa,
-    categories: (job.jobCategories || []).map((x) => x.titleFa).join(", "),
-    work_type: workType.titleFa,
-    seniority: seniority.titleFa,
-    is_remote: properties.isRemote,
-    salary: (job.salary || {}).titleFa,
-    activation_date: (job.activationTime || {}).date,
+
+    title:
+      job.title ??
+      job.jobTitle ??
+      "",
+
+    company:
+      job.company ??
+      job.companyName ??
+      "",
+
+    province:
+      job.province ??
+      job.provinceName ??
+      "",
+
+    city:
+      job.city ??
+      job.cityName ??
+      "",
+
+    categories:
+      job.categories ??
+      [],
+
+    work_type:
+      job.work_type ??
+      job.workType ??
+      "",
+
+    seniority:
+      job.seniority ??
+      job.seniorityLevel ??
+      "",
+
+    is_remote:
+      job.is_remote ??
+      job.isRemote ??
+      false,
+
+    salary:
+      job.salary ??
+      "",
+
+    activation_date:
+      job.activation_date ??
+      job.activationDate ??
+      "",
   };
 }
+
 
 async function liveSearch(keyword) {
-  const first = await fetchLivePage(keyword, 1);
-  const total = first.data ? first.data.jobPostCount : first.jobPostCount;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  const pagesToFetch = Math.min(totalPages, MAX_LIVE_PAGES);
+  const pages = [];
 
-  let jobs = [...(first.jobPosts || [])];
-
-  const pagePromises = [];
-  for (let p = 2; p <= pagesToFetch; p++) {
-    pagePromises.push(fetchLivePage(keyword, p));
+  for (
+    let page = 1;
+    page <= MAX_LIVE_PAGES;
+    page++
+  ) {
+    pages.push(
+      fetchLivePage(keyword, page)
+    );
   }
-  const rest = await Promise.all(pagePromises);
-  rest.forEach((d) => jobs.push(...(d.jobPosts || [])));
+
+  const responses = await Promise.all(pages);
+
+  const jobs = [];
+
+  for (const response of responses) {
+    const items =
+      response?.data?.items ??
+      response?.data ??
+      response?.items ??
+      [];
+
+    if (!Array.isArray(items)) {
+      continue;
+    }
+
+    for (const job of items) {
+      jobs.push(rawJobToRecord(job));
+    }
+  }
+
+  /*
+   * Remove duplicate jobs.
+   */
+  const unique = [];
+  const seen = new Set();
+
+  for (const job of jobs) {
+    if (!job.id || seen.has(job.id)) {
+      continue;
+    }
+
+    seen.add(job.id);
+    unique.push(job);
+  }
+
+  return unique;
+}
+
+
+// ============================================================
+// Job Detail / Skills
+// ============================================================
+
+async function fetchJobDetail(jobId) {
+  if (jobDetailCache.has(jobId)) {
+    return jobDetailCache.get(jobId);
+  }
+
+  try {
+    const response = await fetch(
+      `${JOBVISION_API}/job-detail?id=${encodeURIComponent(jobId)}`
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Detail API returned ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+
+    const result = {
+      id: jobId,
+      skills: Array.isArray(data.skills)
+        ? data.skills
+        : [],
+    };
+
+    jobDetailCache.set(jobId, result);
+
+    return result;
+  } catch (error) {
+    console.warn(
+      `Failed to fetch job ${jobId}:`,
+      error
+    );
+
+    /*
+     * Cache failures too, so we don't repeatedly
+     * request a broken job.
+     */
+    const result = {
+      id: jobId,
+      skills: [],
+      failed: true,
+    };
+
+    jobDetailCache.set(jobId, result);
+
+    return result;
+  }
+}
+
+
+async function fetchJobDetails(jobIds) {
+  const results = [];
+
+  let currentIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = currentIndex++;
+
+      if (index >= jobIds.length) {
+        return;
+      }
+
+      const jobId = jobIds[index];
+
+      const detail =
+        await fetchJobDetail(jobId);
+
+      results[index] = detail;
+
+      updateSkillLoadingProgress(
+        Math.min(index + 1, jobIds.length),
+        jobIds.length
+      );
+    }
+  }
+
+  const workerCount = Math.min(
+    DETAIL_CONCURRENCY,
+    jobIds.length
+  );
+
+  const workers = [];
+
+  for (
+    let i = 0;
+    i < workerCount;
+    i++
+  ) {
+    workers.push(worker());
+  }
+
+  await Promise.all(workers);
+
+  return results.filter(Boolean);
+}
+
+
+// ============================================================
+// Skill Analysis
+// ============================================================
+
+function aggregateSkills(details) {
+  const skillCounts = new Map();
+
+  let analyzedJobs = 0;
+
+  for (const detail of details) {
+    if (
+      !detail ||
+      detail.failed ||
+      !Array.isArray(detail.skills)
+    ) {
+      continue;
+    }
+
+    analyzedJobs++;
+
+    /*
+     * A skill counts only once per job.
+     */
+    const skillsInThisJob = new Set();
+
+    for (const skill of detail.skills) {
+      const name =
+        normalizeSkillName(skill?.name);
+
+      if (!name) {
+        continue;
+      }
+
+      const key =
+        normalizeSkillKey(name);
+
+      if (skillsInThisJob.has(key)) {
+        continue;
+      }
+
+      skillsInThisJob.add(key);
+
+      if (!skillCounts.has(key)) {
+        skillCounts.set(key, {
+          name,
+          count: 0,
+        });
+      }
+
+      skillCounts.get(key).count++;
+    }
+  }
+
+  const skills = [...skillCounts.values()]
+    .map((skill) => ({
+      ...skill,
+      percentage:
+        analyzedJobs > 0
+          ? (skill.count / analyzedJobs) * 100
+          : 0,
+    }))
+    .sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+
+      return a.name.localeCompare(
+        b.name
+      );
+    });
 
   return {
-    total,
-    shown: jobs.length,
-    jobs: jobs.map(rawJobToRecord),
+    skills,
+    analyzedJobs,
   };
 }
 
-async function doSearch() {
-  const q = searchInput.value.trim();
-  if (!q) return;
 
-  backBtn.classList.remove("hidden");
-  app.innerHTML = `<p class="info-box">در حال جستجوی زنده در JobVision...</p>`;
+// ============================================================
+// Skill Loading UI
+// ============================================================
 
-  try {
-    const result = await liveSearch(q);
-    renderSearchResults(result.jobs, q, result.total);
-  } catch (err) {
-    // Likely blocked by CORS or network - fall back to filtering the cached dataset
-    console.warn("Live search failed, falling back to cached data:", err);
-    const qLower = q.toLowerCase();
-    const filtered = ALL_JOBS.filter((j) => {
-      const title = (j.title || "").toLowerCase();
-      const company = (j.company || "").toLowerCase();
-      return title.includes(qLower) || company.includes(qLower);
-    });
-    renderSearchResults(filtered, q, filtered.length, true);
-  }
-}
+function updateSkillLoadingProgress(
+  current,
+  total
+) {
+  const element =
+    document.getElementById(
+      "skills-loading"
+    );
 
-function destroyCharts() {
-  charts.forEach((c) => c.destroy());
-  charts = [];
-}
-
-function countBy(jobs, field, limit) {
-  const counts = {};
-  jobs.forEach((j) => {
-    const v = j[field];
-    if (v === null || v === undefined || v === "") return;
-    counts[v] = (counts[v] || 0) + 1;
-  });
-  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  return limit ? entries.slice(0, limit) : entries;
-}
-
-function makeBarChart(containerId, title, entries) {
-  const box = document.createElement("div");
-  box.className = "chart-box";
-  box.innerHTML = `<h3>${title}</h3><canvas></canvas>`;
-  document.getElementById(containerId).appendChild(box);
-
-  const ctx = box.querySelector("canvas").getContext("2d");
-  const chart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: entries.map((e) => e[0]),
-      datasets: [{ label: title, data: entries.map((e) => e[1]), backgroundColor: "#ff4b4b" }],
-    },
-    options: {
-      indexAxis: "y",
-      plugins: { legend: { display: false } },
-      responsive: true,
-    },
-  });
-  charts.push(chart);
-}
-
-function parseSalaryAvg(jobs) {
-  const values = [];
-  jobs.forEach((j) => {
-    if (!j.salary) return;
-    const nums = String(j.salary)
-      .replace(/,/g, " ")
-      .replace(/،/g, " ")
-      .split(/\s+/)
-      .map(Number)
-      .filter((n) => !isNaN(n));
-    if (nums.length >= 2) values.push((nums[0] + nums[1]) / 2);
-    else if (nums.length === 1) values.push(nums[0]);
-  });
-  if (!values.length) return null;
-  const avg = values.reduce((a, b) => a + b, 0) / values.length;
-  return { avg, count: values.length };
-}
-
-function metricsHtml(jobs) {
-  const total = jobs.length;
-  const companies = new Set(jobs.map((j) => j.company).filter(Boolean)).size;
-  const provinces = new Set(jobs.map((j) => j.province).filter(Boolean)).size;
-  const remote = jobs.filter((j) => j.is_remote).length;
-
-  return `
-    <div class="metrics">
-      <div class="metric-card"><div class="value">${total.toLocaleString("fa-IR")}</div><div class="label">💼 کل آگهی‌ها</div></div>
-      <div class="metric-card"><div class="value">${companies.toLocaleString("fa-IR")}</div><div class="label">🏢 کارفرمایان</div></div>
-      <div class="metric-card"><div class="value">${provinces.toLocaleString("fa-IR")}</div><div class="label">📍 استان‌ها</div></div>
-      <div class="metric-card"><div class="value">${remote.toLocaleString("fa-IR")}</div><div class="label">🌐 دورکاری</div></div>
-    </div>`;
-}
-
-function carouselHtml(jobs) {
-  const sorted = [...jobs].sort((a, b) => new Date(b.activation_date || 0) - new Date(a.activation_date || 0));
-  const top = sorted.slice(0, 20);
-
-  const cards = top
-    .map((j) => {
-      const meta = [];
-      if (j.province) meta.push(`📍 ${j.province}`);
-      if (j.work_type) meta.push(`💼 ${j.work_type}`);
-      if (j.seniority) meta.push(`🎯 ${j.seniority}`);
-      if (j.is_remote) meta.push("🌐 دورکاری");
-
-      return `
-        <div class="job-card">
-          <div class="job-title">${escapeHtml(j.title || "بدون عنوان")}</div>
-          <div class="job-company">🏢 ${escapeHtml(j.company || "نامشخص")}</div>
-          ${meta.map((m) => `<div class="job-meta">${escapeHtml(m)}</div>`).join("")}
-        </div>`;
-    })
-    .join("");
-
-  return `<div class="section-title">🔥 آخرین آگهی‌ها</div><div class="carousel">${cards}</div>`;
-}
-
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
-
-function renderOverview(jobs) {
-  destroyCharts();
-
-  app.innerHTML = `
-    ${metricsHtml(jobs)}
-    ${carouselHtml(jobs)}
-    <div class="section-title">📊 نمودارها</div>
-    <div class="charts-grid" id="chartsGrid"></div>
-  `;
-
-  makeBarChart("chartsGrid", "📍 آگهی به تفکیک استان", countBy(jobs, "province", 15));
-  makeBarChart("chartsGrid", "💼 دسته‌بندی شغلی برتر", countBy(jobs, "categories", 15));
-  makeBarChart("chartsGrid", "🏢 کارفرمایان برتر", countBy(jobs, "company", 15));
-  makeBarChart("chartsGrid", "🎯 سطح تجربه", countBy(jobs, "seniority"));
-  makeBarChart("chartsGrid", "📋 نوع همکاری", countBy(jobs, "work_type"));
-}
-
-function renderSearchResults(jobs, query, totalCount, isFallback) {
-  destroyCharts();
-
-  if (!jobs.length) {
-    app.innerHTML = `<p class="info-box">هیچ آگهی‌ای برای «${escapeHtml(query)}» پیدا نشد.</p>`;
+  if (!element) {
     return;
   }
 
-  const total = totalCount !== undefined ? totalCount : jobs.length;
-  const shownNote =
-    total > jobs.length
-      ? `(${jobs.length.toLocaleString("fa-IR")} مورد برای نمودار/جدول بارگذاری شد)`
-      : "";
-  const fallbackNote = isFallback
-    ? `<br/><small>⚠️ دسترسی زنده به API ممکن نشد؛ این نتایج از داده‌ی ذخیره‌شده (عنوان/شرکت) فیلتر شدن.</small>`
-    : "";
+  element.textContent =
+    `در حال تحلیل مهارت‌های ${current} از ${total} آگهی...`;
+}
 
-  const salaryInfo = parseSalaryAvg(jobs);
-  const salaryHtml = salaryInfo
-    ? `<div class="metrics">
-         <div class="metric-card"><div class="value">${salaryInfo.avg.toFixed(1)}</div><div class="label">💰 میانگین حقوق (میلیون تومان)</div></div>
-         <div class="metric-card"><div class="value">${salaryInfo.count}</div><div class="label">📄 آگهی با اطلاعات حقوق</div></div>
-       </div>`
-    : "";
 
-  const rows = jobs
-    .slice(0, 200)
-    .map(
-      (j) => `<tr>
-        <td>${escapeHtml(j.title || "")}</td>
-        <td>${escapeHtml(j.company || "")}</td>
-        <td>${escapeHtml(j.province || "")}</td>
-        <td>${escapeHtml(j.seniority || "")}</td>
-        <td>${escapeHtml(j.work_type || "")}</td>
-        <td>${escapeHtml(j.salary || "")}</td>
-        <td>
-          <a
-            href="https://jobvision.ir/jobs/${j.id}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="job-link"
-          >
-            مشاهده آگهی
-          </a>
-        </td>
-      </tr>`
-    )
+function showSkillLoading(total) {
+  const container =
+    document.getElementById(
+      "skills-analysis"
+    );
+
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="skills-loading-box">
+      <div
+        id="skills-loading"
+        class="skills-loading"
+      >
+        در حال تحلیل مهارت‌های ${total} آگهی...
+      </div>
+    </div>
+  `;
+}
+
+
+function renderSkillAnalysis(
+  analysis,
+  totalJobs
+) {
+  const container =
+    document.getElementById(
+      "skills-analysis"
+    );
+
+  if (!container) {
+    return;
+  }
+
+  const {
+    skills,
+    analyzedJobs,
+  } = analysis;
+
+  if (
+    analyzedJobs === 0 ||
+    skills.length === 0
+  ) {
+    container.innerHTML = `
+      <div class="skills-empty">
+        اطلاعات مهارت برای آگهی‌های این جستجو پیدا نشد.
+      </div>
+    `;
+
+    return;
+  }
+
+  const topSkills =
+    skills.slice(0, 15);
+
+  const rows = topSkills
+    .map((skill) => {
+      const percentage =
+        skill.percentage.toFixed(1);
+
+      return `
+        <div class="skill-row">
+          <div class="skill-row-header">
+            <span class="skill-name">
+              ${escapeHtml(skill.name)}
+            </span>
+
+            <span class="skill-percentage">
+              ${skill.count} آگهی
+              (${percentage}%)
+            </span>
+          </div>
+
+          <div class="skill-bar-background">
+            <div
+              class="skill-bar"
+              style="width: ${Math.min(
+                skill.percentage,
+                100
+              )}%"
+            ></div>
+          </div>
+        </div>
+      `;
+    })
     .join("");
 
-  app.innerHTML = `
-    <p class="info-box">${total.toLocaleString("fa-IR")} آگهی مطابق «${escapeHtml(query)}» پیدا شد ${shownNote}${fallbackNote}</p>
-    ${salaryHtml}
-    <div class="section-title">📊 نمودارها</div>
-    <div class="charts-grid" id="chartsGrid"></div>
-    <div class="section-title">📄 لیست آگهی‌ها</div>
-    <div class="results-table">
+  container.innerHTML = `
+    <div class="skills-summary">
+      <strong>
+        ${analyzedJobs} از ${totalJobs} آگهی
+      </strong>
+      برای تحلیل مهارت بررسی شدند.
+    </div>
+
+    <div class="skills-list">
+      ${rows}
+    </div>
+  `;
+}
+
+
+// ============================================================
+// Search
+// ============================================================
+
+async function doSearch(keyword) {
+  const normalizedKeyword =
+    String(keyword ?? "").trim();
+
+  if (!normalizedKeyword) {
+    return;
+  }
+
+  const resultsContainer =
+    document.getElementById(
+      "search-results"
+    );
+
+  if (resultsContainer) {
+    resultsContainer.innerHTML = `
+      <div class="loading">
+        در حال دریافت آگهی‌ها...
+      </div>
+    `;
+  }
+
+  try {
+    const jobs =
+      await liveSearch(
+        normalizedKeyword
+      );
+
+    currentSearchResults = jobs;
+    ALL_JOBS = jobs;
+
+    renderSearchResults(jobs);
+
+    /*
+     * Start skill analysis after the main
+     * search results are available.
+     */
+    analyzeSearchSkills(jobs);
+  } catch (error) {
+    console.error(error);
+
+    /*
+     * Fallback to cached data.
+     */
+    const lowerKeyword =
+      normalizedKeyword.toLowerCase();
+
+    const cached =
+      ALL_JOBS.filter((job) => {
+        const title =
+          String(job.title ?? "")
+            .toLowerCase();
+
+        const company =
+          String(job.company ?? "")
+            .toLowerCase();
+
+        return (
+          title.includes(lowerKeyword) ||
+          company.includes(lowerKeyword)
+        );
+      });
+
+    currentSearchResults = cached;
+
+    renderSearchResults(cached);
+
+    analyzeSearchSkills(cached);
+  }
+}
+
+
+// ============================================================
+// Skill Analysis Pipeline
+// ============================================================
+
+async function analyzeSearchSkills(
+  jobs
+) {
+  const validJobs =
+    jobs.filter((job) => job.id);
+
+  if (!validJobs.length) {
+    renderSkillAnalysis(
+      {
+        skills: [],
+        analyzedJobs: 0,
+      },
+      0
+    );
+
+    return;
+  }
+
+  showSkillLoading(
+    validJobs.length
+  );
+
+  const jobIds =
+    validJobs.map(
+      (job) => job.id
+    );
+
+  const details =
+    await fetchJobDetails(jobIds);
+
+  const analysis =
+    aggregateSkills(details);
+
+  renderSkillAnalysis(
+    analysis,
+    validJobs.length
+  );
+}
+
+
+// ============================================================
+// Search Results
+// ============================================================
+
+function renderSearchResults(jobs) {
+  const container =
+    document.getElementById(
+      "search-results"
+    );
+
+  if (!container) {
+    return;
+  }
+
+  if (!jobs.length) {
+    container.innerHTML = `
+      <div class="empty">
+        آگهی‌ای پیدا نشد.
+      </div>
+    `;
+
+    return;
+  }
+
+  const rows = jobs
+    .map((j) => {
+      const jobUrl =
+        `https://jobvision.ir/jobs/${encodeURIComponent(
+          j.id
+        )}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko`;
+
+      return `
+        <tr>
+          <td>
+            <a
+              href="${jobUrl}"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ${escapeHtml(j.title)}
+            </a>
+          </td>
+
+          <td>
+            ${escapeHtml(j.company)}
+          </td>
+
+          <td>
+            ${escapeHtml(j.city)}
+          </td>
+
+          <td>
+            ${escapeHtml(j.seniority)}
+          </td>
+
+          <td>
+            ${escapeHtml(j.work_type)}
+          </td>
+
+          <td>
+            ${escapeHtml(j.salary)}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = `
+    <div class="results-count">
+      ${jobs.length} آگهی
+    </div>
+
+    <div class="table-wrapper">
       <table>
-        <thead><tr><th>عنوان</th><th>شرکت</th><th>استان</th><th>سطح تجربه</th><th>نوع همکاری</th><th>حقوق</th><th>آگهی</th></tr></thead>
-        <tbody>${rows}</tbody>
+        <thead>
+          <tr>
+            <th>عنوان شغلی</th>
+            <th>شرکت</th>
+            <th>شهر</th>
+            <th>سطح</th>
+            <th>نوع همکاری</th>
+            <th>حقوق</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          ${rows}
+        </tbody>
       </table>
     </div>
   `;
-
-  makeBarChart("chartsGrid", "🏢 کارفرمایان برتر", countBy(jobs, "company", 10));
-  makeBarChart("chartsGrid", "📍 موقعیت مکانی", countBy(jobs, "province", 10));
-  makeBarChart("chartsGrid", "🎯 سطح تجربه", countBy(jobs, "seniority"));
-  makeBarChart("chartsGrid", "📋 نوع همکاری", countBy(jobs, "work_type"));
 }
+
+
+// ============================================================
+// Charts
+// ============================================================
+
+function countValues(
+  jobs,
+  getter
+) {
+  const counts = {};
+
+  for (const job of jobs) {
+    const value =
+      getter(job);
+
+    if (!value) {
+      continue;
+    }
+
+    const key =
+      String(value).trim();
+
+    if (!key) {
+      continue;
+    }
+
+    counts[key] =
+      (counts[key] ?? 0) + 1;
+  }
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1]);
+}
+
+
+function makeBarChart(
+  canvasId,
+  labels,
+  values,
+  label
+) {
+  const canvas =
+    document.getElementById(
+      canvasId
+    );
+
+  if (!canvas) {
+    return;
+  }
+
+  if (
+    typeof Chart ===
+    "undefined"
+  ) {
+    return;
+  }
+
+  /*
+   * Destroy previous chart.
+   */
+  if (canvas._chart) {
+    canvas._chart.destroy();
+  }
+
+  canvas._chart =
+    new Chart(canvas, {
+      type: "bar",
+
+      data: {
+        labels,
+
+        datasets: [
+          {
+            label,
+            data: values,
+          },
+        ],
+      },
+
+      options: {
+        responsive: true,
+
+        plugins: {
+          legend: {
+            display: false,
+          },
+        },
+
+        scales: {
+          y: {
+            beginAtZero: true,
+          },
+        },
+      },
+    });
+}
+
+
+function renderCharts(jobs) {
+  const companies =
+    countValues(
+      jobs,
+      (job) => job.company
+    ).slice(0, 10);
+
+  makeBarChart(
+    "company-chart",
+    companies.map(
+      ([name]) => name
+    ),
+    companies.map(
+      ([, count]) => count
+    ),
+    "تعداد آگهی"
+  );
+
+
+  const locations =
+    countValues(
+      jobs,
+      (job) =>
+        job.city ||
+        job.province
+    ).slice(0, 10);
+
+  makeBarChart(
+    "location-chart",
+    locations.map(
+      ([name]) => name
+    ),
+    locations.map(
+      ([, count]) => count
+    ),
+    "تعداد آگهی"
+  );
+
+
+  const seniorities =
+    countValues(
+      jobs,
+      (job) => job.seniority
+    );
+
+  makeBarChart(
+    "seniority-chart",
+    seniorities.map(
+      ([name]) => name
+    ),
+    seniorities.map(
+      ([, count]) => count
+    ),
+    "تعداد آگهی"
+  );
+
+
+  const workTypes =
+    countValues(
+      jobs,
+      (job) => job.work_type
+    );
+
+  makeBarChart(
+    "work-type-chart",
+    workTypes.map(
+      ([name]) => name
+    ),
+    workTypes.map(
+      ([, count]) => count
+    ),
+    "تعداد آگهی"
+  );
+}
+
+
+// ============================================================
+// Initialization
+// ============================================================
+
+document.addEventListener(
+  "DOMContentLoaded",
+  () => {
+    const searchForm =
+      document.getElementById(
+        "search-form"
+      );
+
+    const searchInput =
+      document.getElementById(
+        "search-input"
+      );
+
+    if (searchForm && searchInput) {
+      searchForm.addEventListener(
+        "submit",
+        async (event) => {
+          event.preventDefault();
+
+          await doSearch(
+            searchInput.value
+          );
+        }
+      );
+    }
+  }
+);
