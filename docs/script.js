@@ -5,7 +5,10 @@ const PAGE_SIZE = 30;
 const MAX_LIVE_PAGES = 10;
 const DETAIL_CONCURRENCY = 5;
 
+const DATA_URL = "data/jobs.json";
+
 let ALL_JOBS = [];
+let OVERVIEW_JOBS = [];
 let currentSearchResults = [];
 
 const jobDetailCache = new Map();
@@ -692,6 +695,122 @@ function renderSearchResults(jobs) {
 
 
 // ============================================================
+// Overview: Metrics
+// ============================================================
+
+function renderMetrics(jobs) {
+  const container =
+    document.getElementById("metrics");
+
+  if (!container) {
+    return;
+  }
+
+  const totalJobs = jobs.length;
+
+  const companies = new Set(
+    jobs
+      .map((job) => job.company)
+      .filter(Boolean)
+  ).size;
+
+  const provinces = new Set(
+    jobs
+      .map((job) => job.province)
+      .filter(Boolean)
+  ).size;
+
+  const remoteJobs = jobs.filter(
+    (job) => job.is_remote
+  ).length;
+
+  const metrics = [
+    { label: "💼 کل آگهی‌ها", value: totalJobs },
+    { label: "🏢 کارفرمایان", value: companies },
+    { label: "📍 استان‌ها", value: provinces },
+    { label: "🌐 آگهی‌های ریموت", value: remoteJobs },
+  ];
+
+  container.innerHTML = metrics
+    .map(
+      (metric) => `
+        <div class="metric-card">
+          <div class="value">
+            ${metric.value.toLocaleString("fa-IR")}
+          </div>
+          <div class="label">
+            ${metric.label}
+          </div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+
+// ============================================================
+// Overview: Carousel
+// ============================================================
+
+function renderCarousel(jobs, limit = 20) {
+  const container =
+    document.getElementById("job-carousel");
+
+  if (!container) {
+    return;
+  }
+
+  const sorted = [...jobs].sort((a, b) => {
+    const dateA = new Date(a.activation_date ?? 0).getTime() || 0;
+    const dateB = new Date(b.activation_date ?? 0).getTime() || 0;
+
+    return dateB - dateA;
+  });
+
+  const cards = sorted
+    .slice(0, limit)
+    .map((job) => {
+      const metaParts = [];
+
+      if (job.province) {
+        metaParts.push(`📍 ${escapeHtml(job.province)}`);
+      }
+
+      if (job.work_type) {
+        metaParts.push(`💼 ${escapeHtml(job.work_type)}`);
+      }
+
+      if (job.seniority) {
+        metaParts.push(`🎯 ${escapeHtml(job.seniority)}`);
+      }
+
+      if (job.is_remote) {
+        metaParts.push("🌐 ریموت");
+      }
+
+      const metaHtml = metaParts
+        .map((item) => `<div class="job-meta">${item}</div>`)
+        .join("");
+
+      return `
+        <div class="job-card">
+          <div class="job-title">
+            ${escapeHtml(job.title || "بدون عنوان")}
+          </div>
+          <div class="job-company">
+            🏢 ${escapeHtml(job.company || "نامشخص")}
+          </div>
+          ${metaHtml}
+        </div>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = cards;
+}
+
+
+// ============================================================
 // Charts
 // ============================================================
 
@@ -865,6 +984,102 @@ function renderCharts(jobs) {
 
 
 // ============================================================
+// Overview: Orchestration
+// ============================================================
+
+function renderOverview(jobs) {
+  renderMetrics(jobs);
+  renderCarousel(jobs);
+  renderCharts(jobs);
+}
+
+
+function setUpdatedAt(generatedAt, count) {
+  const element =
+    document.getElementById("updatedAt");
+
+  if (!element) {
+    return;
+  }
+
+  const parts = [];
+
+  if (count) {
+    parts.push(
+      `${Number(count).toLocaleString("fa-IR")} آگهی`
+    );
+  }
+
+  if (generatedAt) {
+    const date = new Date(generatedAt);
+
+    if (!Number.isNaN(date.getTime())) {
+      parts.push(
+        `به‌روزرسانی: ${date.toLocaleString("fa-IR")}`
+      );
+    }
+  }
+
+  element.textContent = parts.join(" • ");
+}
+
+
+async function loadOverviewData() {
+  const loadingElement =
+    document.getElementById("loading");
+
+  const overviewSection =
+    document.getElementById("overview-section");
+
+  try {
+    const response = await fetch(DATA_URL);
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load ${DATA_URL}: ${response.status}`
+      );
+    }
+
+    const payload = await response.json();
+
+    const rawJobs = Array.isArray(payload)
+      ? payload
+      : payload.jobs ?? [];
+
+    const jobs = rawJobs.map(rawJobToRecord);
+
+    OVERVIEW_JOBS = jobs;
+    ALL_JOBS = jobs;
+
+    setUpdatedAt(
+      payload?.generated_at,
+      payload?.count ?? jobs.length
+    );
+
+    renderOverview(jobs);
+
+    if (loadingElement) {
+      loadingElement.remove();
+    }
+
+    if (overviewSection) {
+      overviewSection.classList.remove("hidden");
+    }
+  } catch (error) {
+    console.error(
+      "Failed to load overview data:",
+      error
+    );
+
+    if (loadingElement) {
+      loadingElement.textContent =
+        "خطا در بارگذاری داده‌ها. لطفاً صفحه را دوباره بارگذاری کنید.";
+    }
+  }
+}
+
+
+// ============================================================
 // Initialization
 // ============================================================
 
@@ -881,17 +1096,71 @@ document.addEventListener(
         "search-input"
       );
 
+    const backBtn =
+      document.getElementById("backBtn");
+
+    const overviewSection =
+      document.getElementById(
+        "overview-section"
+      );
+
+    const searchSection =
+      document.getElementById(
+        "search-section"
+      );
+
     if (searchForm && searchInput) {
       searchForm.addEventListener(
         "submit",
         async (event) => {
           event.preventDefault();
 
-          await doSearch(
-            searchInput.value
-          );
+          const keyword = searchInput.value.trim();
+
+          if (!keyword) {
+            return;
+          }
+
+          if (overviewSection) {
+            overviewSection.classList.add("hidden");
+          }
+
+          if (searchSection) {
+            searchSection.classList.remove("hidden");
+          }
+
+          if (backBtn) {
+            backBtn.classList.remove("hidden");
+          }
+
+          await doSearch(keyword);
         }
       );
     }
+
+    if (backBtn) {
+      backBtn.addEventListener(
+        "click",
+        () => {
+          ALL_JOBS = OVERVIEW_JOBS;
+
+          if (searchInput) {
+            searchInput.value = "";
+          }
+
+          if (searchSection) {
+            searchSection.classList.add("hidden");
+          }
+
+          if (overviewSection) {
+            overviewSection.classList.remove("hidden");
+          }
+
+          backBtn.classList.add("hidden");
+        }
+      );
+    }
+
+    loadOverviewData();
   }
 );

@@ -15,24 +15,58 @@
   <p class="updated-at" id="updatedAt"></p>
 </header>
 
-<section class="search-bar">
-  <input id="searchInput" type="text" placeholder="عنوان شغلی یا شرکت... مثلاً Python Developer" />
-  <button id="searchBtn">🔍 جستجو</button>
-  <button id="backBtn" class="hidden">← بازگشت به نمای کلی</button>
-</section>
-
-<section class="analysis-section">
-    <h2>📚 مهارت‌های موردنیاز</h2>
-
-    <div id="skills-analysis">
-        <div class="skills-empty">
-            برای مشاهده تحلیل مهارت، یک جستجو انجام دهید.
-        </div>
-    </div>
-</section>
+<form class="search-bar" id="search-form">
+  <input id="search-input" type="text" placeholder="عنوان شغلی یا شرکت... مثلاً Python Developer" />
+  <button id="searchBtn" type="submit">🔍 جستجو</button>
+  <button id="backBtn" type="button" class="hidden">← بازگشت به نمای کلی</button>
+</form>
 
 <main id="app">
+
   <p id="loading">در حال بارگذاری داده‌ها...</p>
+
+  <section id="overview-section" class="hidden">
+
+    <div class="metrics" id="metrics"></div>
+
+    <div class="section-title">🔥 آخرین آگهی‌های شغلی</div>
+    <div class="carousel" id="job-carousel"></div>
+
+    <div class="section-title">📊 نمودارهای بازار کار</div>
+    <div class="charts-grid">
+      <div class="chart-box">
+        <h3>🏢 برترین شرکت‌ها</h3>
+        <canvas id="company-chart"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>📍 آگهی‌ها به تفکیک شهر/استان</h3>
+        <canvas id="location-chart"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>🎯 سطح شغلی</h3>
+        <canvas id="seniority-chart"></canvas>
+      </div>
+      <div class="chart-box">
+        <h3>📋 نوع همکاری</h3>
+        <canvas id="work-type-chart"></canvas>
+      </div>
+    </div>
+
+  </section>
+
+  <section id="search-section" class="hidden">
+
+    <div id="search-results"></div>
+
+    <div class="section-title">📚 مهارت‌های موردنیاز</div>
+    <div id="skills-analysis">
+      <div class="skills-empty">
+        برای مشاهده تحلیل مهارت، یک جستجو انجام دهید.
+      </div>
+    </div>
+
+  </section>
+
 </main>
 
 <script src="script.js"></script>

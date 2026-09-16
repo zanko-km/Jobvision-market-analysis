@@ -38,6 +38,7 @@ body {
   font-size: 15px;
   cursor: pointer;
 }
+.hidden { display: none !important; }
 .search-bar button.hidden { display: none; }
 .search-bar #backBtn { background: #555; }
 
