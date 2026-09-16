@@ -72,6 +72,7 @@ function rawJobToRecord(job) {
 
   return {
     id: job.id,
+    jobvision_url: `https://jobvision.ir/jobs/${job.id}`,
     title: job.title,
     company: company.nameFa,
     province: province.titleFa,
@@ -283,6 +284,16 @@ function renderSearchResults(jobs, query, totalCount, isFallback) {
         <td>${escapeHtml(j.seniority || "")}</td>
         <td>${escapeHtml(j.work_type || "")}</td>
         <td>${escapeHtml(j.salary || "")}</td>
+        <td>
+          <a
+            href="${j.jobvision_url}"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="job-link"
+          >
+            مشاهده آگهی
+          </a>
+        </td>
       </tr>`
     )
     .join("");
