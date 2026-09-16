@@ -286,7 +286,7 @@ function renderSearchResults(jobs, query, totalCount, isFallback) {
         <td>${escapeHtml(j.salary || "")}</td>
         <td>
           <a
-            href="${j.jobvision_url}"
+            href="https://jobvision.ir/jobs/${j.id}"
             target="_blank"
             rel="noopener noreferrer"
             class="job-link"
@@ -306,7 +306,7 @@ function renderSearchResults(jobs, query, totalCount, isFallback) {
     <div class="section-title">📄 لیست آگهی‌ها</div>
     <div class="results-table">
       <table>
-        <thead><tr><th>عنوان</th><th>شرکت</th><th>استان</th><th>سطح تجربه</th><th>نوع همکاری</th><th>حقوق</th></tr></thead>
+        <thead><tr><th>عنوان</th><th>شرکت</th><th>استان</th><th>سطح تجربه</th><th>نوع همکاری</th><th>حقوق</th><th>آگهی</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
