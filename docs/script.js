@@ -72,7 +72,6 @@ function rawJobToRecord(job) {
 
   return {
     id: job.id,
-    jobvision_url: `https://jobvision.ir/jobs/${job.id}`,
     title: job.title,
     company: company.nameFa,
     province: province.titleFa,
@@ -286,7 +285,7 @@ function renderSearchResults(jobs, query, totalCount, isFallback) {
         <td>${escapeHtml(j.salary || "")}</td>
         <td>
           <a
-            href="https://jobvision.ir/jobs/${j.id}"
+            href="https://jobvision.ir/jobs/${j.id}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko"
             target="_blank"
             rel="noopener noreferrer"
             class="job-link"
