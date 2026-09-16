@@ -9,7 +9,11 @@ const SEARCH_TIMEOUT_MS = 20000;
 const DETAIL_CONCURRENCY = 10;
 
 const DATA_URL = "data/jobs.json";
+const JOBS_PER_PAGE_OPTIONS = [5, 10, 20, 50, 200];
+const DEFAULT_JOBS_PER_PAGE = 5;
 
+let currentJobsPage = 1;
+let currentJobsPerPage = DEFAULT_JOBS_PER_PAGE;
 // ============================================================
 // State
 // ============================================================
@@ -1417,97 +1421,219 @@ function renderSalaryChart(
 // Search results table
 // ============================================================
 
-function renderSearchTable(
-  jobs
-) {
+function renderSearchTable(jobs) {
+  const container = $("search-positions");
+
+  if (!container) {
+    return;
+  }
+
   if (!jobs.length) {
-    return `
+    container.innerHTML = `
+      <div class="section-title">
+        💼 پوزیشن‌های شغلی
+      </div>
+
       <div class="empty">
         آگهی‌ای پیدا نشد.
       </div>
     `;
+    return;
   }
 
-  const rows =
-    jobs
-      .slice(0, 200)
-      .map((job) => {
-        const jobUrl =
-          `https://jobvision.ir/jobs/${encodeURIComponent(
-            job.id
-          )}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko`;
+  const totalJobs = jobs.length;
 
-        return `
-          <tr>
+  const totalPages = Math.ceil(
+    totalJobs / currentJobsPerPage
+  );
 
-            <td>
-              <a
-                href="${jobUrl}"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="job-link"
-              >
-                ${escapeHtml(
-                  job.title
-                )}
-              </a>
-            </td>
+  if (currentJobsPage > totalPages) {
+    currentJobsPage = totalPages;
+  }
 
-            <td>
-              ${escapeHtml(
-                job.company
-              )}
-            </td>
+  const startIndex =
+    (currentJobsPage - 1) *
+    currentJobsPerPage;
 
-            <td>
-              ${escapeHtml(
-                job.city ||
-                job.province
-              )}
-            </td>
+  const endIndex =
+    startIndex +
+    currentJobsPerPage;
 
-            <td>
-              ${escapeHtml(
-                job.seniority
-              )}
-            </td>
+  const pageJobs =
+    jobs.slice(
+      startIndex,
+      endIndex
+    );
 
-            <td>
-              ${escapeHtml(
-                job.work_type
-              )}
-            </td>
+  const rows = pageJobs
+    .map((job) => {
+      const jobUrl =
+        `https://jobvision.ir/jobs/${encodeURIComponent(
+          job.id
+        )}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko`;
 
-            <td>
-              ${escapeHtml(
-                job.salary
-              )}
-            </td>
+      return `
+        <tr>
+          <td>
+            <a
+              href="${jobUrl}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="job-link"
+            >
+              ${escapeHtml(job.title)}
+            </a>
+          </td>
 
-            <td>
-              <a
-                href="${jobUrl}"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="job-link"
-              >
-                مشاهده آگهی
-              </a>
-            </td>
+          <td>
+            ${escapeHtml(job.company)}
+          </td>
 
-          </tr>
-        `;
-      })
-      .join("");
+          <td>
+            ${escapeHtml(
+              job.city ||
+              job.province
+            )}
+          </td>
 
-  return `
+          <td>
+            ${escapeHtml(job.seniority)}
+          </td>
+
+          <td>
+            ${escapeHtml(job.work_type)}
+          </td>
+
+          <td>
+            ${escapeHtml(job.salary)}
+          </td>
+
+          <td>
+            <a
+              href="${jobUrl}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="job-link"
+            >
+              مشاهده آگهی
+            </a>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const pageButtons = [];
+
+  for (
+    let page = 1;
+    page <= totalPages;
+    page++
+  ) {
+    pageButtons.push(`
+      <button
+        type="button"
+        class="pagination-button ${
+          page === currentJobsPage
+            ? "active"
+            : ""
+        }"
+        data-page="${page}"
+      >
+        ${formatNumber(page)}
+      </button>
+    `);
+  }
+
+  const paginationHtml =
+    totalPages > 1
+      ? `
+        <div class="pagination">
+          <button
+            type="button"
+            class="pagination-button"
+            data-page="${currentJobsPage - 1}"
+            ${
+              currentJobsPage === 1
+                ? "disabled"
+                : ""
+            }
+          >
+            قبلی
+          </button>
+
+          ${pageButtons.join("")}
+
+          <button
+            type="button"
+            class="pagination-button"
+            data-page="${currentJobsPage + 1}"
+            ${
+              currentJobsPage === totalPages
+                ? "disabled"
+                : ""
+            }
+          >
+            بعدی
+          </button>
+        </div>
+      `
+      : "";
+
+  const startDisplay =
+    startIndex + 1;
+
+  const endDisplay =
+    Math.min(
+      endIndex,
+      totalJobs
+    );
+
+  container.innerHTML = `
     <div class="section-title">
-      📄 لیست آگهی‌ها
+      💼 پوزیشن‌های شغلی
+    </div>
+
+    <div class="jobs-toolbar">
+      <div class="jobs-count">
+        نمایش ${formatNumber(
+          startDisplay
+        )} تا ${formatNumber(
+          endDisplay
+        )} از ${formatNumber(
+          totalJobs
+        )} آگهی
+      </div>
+
+      <div class="jobs-per-page">
+        <label for="jobs-per-page">
+          تعداد در هر صفحه:
+        </label>
+
+        <select id="jobs-per-page">
+          ${JOBS_PER_PAGE_OPTIONS
+            .map(
+              (size) => `
+                <option
+                  value="${size}"
+                  ${
+                    size ===
+                    currentJobsPerPage
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  ${size}
+                </option>
+              `
+            )
+            .join("")}
+        </select>
+      </div>
     </div>
 
     <div class="results-table table-wrapper">
       <table>
-
         <thead>
           <tr>
             <th>عنوان</th>
@@ -1523,23 +1649,70 @@ function renderSearchTable(
         <tbody>
           ${rows}
         </tbody>
-
       </table>
     </div>
 
-    ${
-      jobs.length > 200
-        ? `
-          <div class="info-box">
-            فقط ۲۰۰ آگهی اول در جدول نمایش داده شده‌اند؛
-            تحلیل‌ها بر اساس تمام ${formatNumber(
-              jobs.length
-            )} آگهی بارگذاری‌شده انجام شده‌اند.
-          </div>
-        `
-        : ""
-    }
+    ${paginationHtml}
   `;
+
+  const pageButtonsElements =
+    container.querySelectorAll(
+      ".pagination-button[data-page]"
+    );
+
+  pageButtonsElements.forEach(
+    (button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          const page = Number(
+            button.dataset.page
+          );
+
+          if (
+            !Number.isFinite(page) ||
+            page < 1 ||
+            page > totalPages ||
+            page === currentJobsPage
+          ) {
+            return;
+          }
+
+          currentJobsPage = page;
+
+          renderSearchTable(
+            currentSearchResults
+          );
+
+          container.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }
+      );
+    }
+  );
+
+  const pageSizeSelect =
+    $("jobs-per-page");
+
+  if (pageSizeSelect) {
+    pageSizeSelect.addEventListener(
+      "change",
+      () => {
+        currentJobsPerPage =
+          Number(
+            pageSizeSelect.value
+          );
+
+        currentJobsPage = 1;
+
+        renderSearchTable(
+          currentSearchResults
+        );
+      }
+    );
+  }
 }
 
 // ============================================================
@@ -1663,9 +1836,6 @@ function renderSearchResults(
       id="search-charts"
     ></div>
 
-    ${renderSearchTable(
-      jobs
-    )}
   `;
 
   renderSearchCharts(
@@ -1673,6 +1843,13 @@ function renderSearchResults(
   );
 
   renderSalaryChart(
+    jobs
+  );
+  currentJobsPage = 1;
+  currentJobsPerPage =
+    DEFAULT_JOBS_PER_PAGE;
+
+  renderSearchTable(
     jobs
   );
 }
