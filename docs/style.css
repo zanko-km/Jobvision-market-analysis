@@ -1,4 +1,14 @@
-* { box-sizing: border-box; }
+/* =========================================================
+   Global
+   ========================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
 
 body {
   font-family: "Segoe UI", Tahoma, sans-serif;
@@ -6,190 +16,678 @@ body {
   color: #1e2327;
   margin: 0;
   padding: 24px;
+  line-height: 1.5;
 }
+
+.hidden {
+  display: none !important;
+}
+
+
+/* =========================================================
+   Header
+   ========================================================= */
 
 .page-header {
   text-align: center;
-  margin-bottom: 20px;
+  margin: 8px auto 20px;
+  max-width: 1100px;
 }
-.page-header h1 { margin-bottom: 4px; }
-.subtitle { color: #666; margin: 0; }
-.updated-at { color: #999; font-size: 12px; margin-top: 4px; }
+
+.page-header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  line-height: 1.3;
+}
+
+.subtitle {
+  color: #666;
+  margin: 0;
+  font-size: 14px;
+}
+
+.updated-at {
+  color: #999;
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+
+/* =========================================================
+   Search Bar
+   ========================================================= */
 
 .search-bar {
   display: flex;
-  gap: 10px;
-  max-width: 700px;
-  margin: 0 auto 30px auto;
+  gap: 8px;
+  max-width: 760px;
+  margin: 0 auto 28px;
 }
+
 .search-bar input {
   flex: 1;
+  min-width: 0;
   padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid #ddd;
+  border: 1px solid #d9dce1;
+  background: #fff;
+  color: #1e2327;
   font-size: 15px;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
+
+.search-bar input:focus {
+  border-color: #ff4b4b;
+  box-shadow: 0 0 0 3px rgba(255, 75, 75, 0.1);
+}
+
 .search-bar button {
-  padding: 10px 18px;
+  flex: 0 0 auto;
+  padding: 10px 17px;
   border-radius: 8px;
   border: none;
   background: #ff4b4b;
   color: white;
-  font-size: 15px;
+  font-size: 14px;
   cursor: pointer;
+  transition:
+    background 0.2s ease,
+    transform 0.1s ease;
 }
-.hidden { display: none !important; }
-.search-bar button.hidden { display: none; }
-.search-bar #backBtn { background: #555; }
 
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto 30px auto;
+.search-bar button:hover {
+  background: #ef3f3f;
 }
-.metric-card {
-  background: white;
-  border-radius: 12px;
-  padding: 18px;
-  text-align: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+
+.search-bar button:active {
+  transform: translateY(1px);
 }
-.metric-card .value { font-size: 26px; font-weight: 700; }
-.metric-card .label { color: #666; font-size: 13px; margin-top: 4px; }
+
+.search-bar button.hidden {
+  display: none !important;
+}
+
+.search-bar #backBtn {
+  background: #555;
+}
+
+.search-bar #backBtn:hover {
+  background: #444;
+}
+
+
+/* =========================================================
+   Main Layout
+   ========================================================= */
+
+#app {
+  width: 100%;
+}
+
+#overview-section,
+#search-section {
+  width: 100%;
+}
+
+
+/* =========================================================
+   Section Titles
+   ========================================================= */
 
 .section-title {
   max-width: 1100px;
-  margin: 30px auto 12px auto;
-  font-size: 18px;
+  margin: 26px auto 11px;
+  padding: 0 2px;
+  font-size: 17px;
   font-weight: 700;
+  line-height: 1.4;
 }
+
+
+/* =========================================================
+   Metrics
+   ========================================================= */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 1100px;
+  margin: 0 auto 26px;
+}
+
+.metric-card {
+  min-width: 0;
+  background: #fff;
+  border-radius: 10px;
+  padding: 14px 12px;
+  text-align: center;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+}
+
+.metric-card .value {
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric-card .label {
+  color: #666;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+
+/* =========================================================
+   Latest Jobs Carousel
+   ========================================================= */
 
 .carousel {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   overflow-x: auto;
   max-width: 1100px;
-  margin: 0 auto 30px auto;
-  padding-bottom: 12px;
+  margin: 0 auto 26px;
+  padding: 2px 2px 10px;
+  scrollbar-width: thin;
 }
+
+.carousel::-webkit-scrollbar {
+  height: 7px;
+}
+
+.carousel::-webkit-scrollbar-thumb {
+  background: #cfd2d6;
+  border-radius: 999px;
+}
+
 .job-card {
-  flex: 0 0 260px;
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  flex: 0 0 245px;
+  width: 245px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 14px;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
 }
-.job-card .job-title { font-weight: 700; margin-bottom: 8px; }
-.job-card .job-company { font-weight: 600; margin-bottom: 8px; }
-.job-card .job-meta { font-size: 12px; color: #666; margin-top: 4px; }
+
+.job-card .job-title {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.45;
+  margin-bottom: 6px;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.job-card .job-company {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 7px;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-card .job-meta {
+  font-size: 11px;
+  color: #666;
+  margin-top: 3px;
+}
+
+
+/* =========================================================
+   Charts
+   ========================================================= */
 
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
   max-width: 1100px;
-  margin: 0 auto 30px auto;
+  margin: 0 auto 28px;
 }
-.chart-box {
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-}
-.chart-box h3 { margin-top: 0; font-size: 15px; }
 
-.results-table {
-  max-width: 1100px;
-  margin: 0 auto 40px auto;
-  overflow-x: auto;
+.chart-box {
+  min-width: 0;
+  height: 300px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 13px 15px 15px;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+  overflow: hidden;
+  position: relative;
 }
-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
-th, td { padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 13px; text-align: right; }
-th { background: #fafafa; }
+
+.chart-box h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.chart-box canvas {
+  width: 100% !important;
+  height: 245px !important;
+}
+
+
+/* =========================================================
+   Search Results / Analysis Containers
+   ========================================================= */
+
+#search-results {
+  width: 100%;
+}
+
+#search-results > * {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 .info-box {
   max-width: 1100px;
-  margin: 0 auto 30px auto;
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  margin: 0 auto 20px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
   color: #666;
   text-align: center;
+  font-size: 13px;
 }
 
 
-.skills-loading-box {
-    padding: 24px;
-    text-align: center;
+/* =========================================================
+   Search Metrics
+   ========================================================= */
+
+#search-results .metrics {
+  margin-bottom: 22px;
 }
 
-.skills-loading {
-    font-size: 15px;
-    opacity: 0.75;
+
+/* =========================================================
+   Salary / Analysis Cards
+   ========================================================= */
+
+#salary-charts {
+  max-width: 1100px;
+  margin: 0 auto 24px;
 }
 
-.skills-summary {
-    margin-bottom: 24px;
-    font-size: 15px;
+#salary-charts .chart-box {
+  width: 100%;
 }
 
-.skills-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+#salary-charts .chart-box canvas {
+  height: 250px !important;
 }
 
-.skill-row {
-    width: 100%;
-}
 
-.skill-row-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 6px;
-}
-
-.skill-name {
-    font-weight: 600;
-}
-
-.skill-percentage {
-    font-size: 14px;
-    opacity: 0.75;
-    white-space: nowrap;
-}
-
-.skill-bar-background {
-    width: 100%;
-    height: 9px;
-    border-radius: 999px;
-    background: #e5e7eb;
-    overflow: hidden;
-}
-
-.skill-bar {
-    height: 100%;
-    border-radius: 999px;
-    background: #2563eb;
-    transition: width 0.3s ease;
-}
-
-.skills-empty {
-    padding: 24px;
-    text-align: center;
-    opacity: 0.7;
-}
+/* =========================================================
+   Results Count
+   ========================================================= */
 
 .results-count {
-    margin-bottom: 12px;
-    font-weight: 600;
+  max-width: 1100px;
+  margin: 0 auto 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+
+/* =========================================================
+   Results Table
+   ========================================================= */
+
+.results-table {
+  max-width: 1100px;
+  margin: 0 auto 30px;
 }
 
 .table-wrapper {
-    overflow-x: auto;
+  overflow-x: auto;
+  width: 100%;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+th,
+td {
+  padding: 9px 11px;
+  border-bottom: 1px solid #eee;
+  font-size: 12px;
+  text-align: right;
+  vertical-align: middle;
+}
+
+th {
+  background: #fafafa;
+  color: #444;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+td {
+  color: #333;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:hover {
+  background: #fafafa;
+}
+
+.job-link {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.job-link:hover {
+  text-decoration: underline;
+}
+
+
+/* =========================================================
+   Skills Analysis
+   ========================================================= */
+
+#skills-analysis {
+  max-width: 1100px;
+  margin: 0 auto 35px;
+}
+
+.skills-loading-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 22px;
+  text-align: center;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+}
+
+.skills-loading {
+  font-size: 14px;
+  color: #666;
+  opacity: 0.9;
+}
+
+.skills-summary {
+  background: #fff;
+  border-radius: 10px;
+  padding: 13px 15px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #555;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+}
+
+.skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+}
+
+.skill-row {
+  width: 100%;
+}
+
+.skill-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+
+.skill-name {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.skill-percentage {
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+}
+
+.skill-bar-background {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: #e7e9ed;
+  overflow: hidden;
+}
+
+.skill-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: #2563eb;
+  transition: width 0.3s ease;
+}
+
+.skills-empty {
+  background: #fff;
+  border-radius: 10px;
+  padding: 22px;
+  text-align: center;
+  color: #777;
+  font-size: 13px;
+  opacity: 0.9;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+}
+
+
+/* =========================================================
+   Loading
+   ========================================================= */
+
+#loading {
+  max-width: 1100px;
+  margin: 35px auto;
+  text-align: center;
+  color: #777;
+  font-size: 14px;
+}
+
+
+/* =========================================================
+   Responsive - Tablet
+   ========================================================= */
+
+@media (max-width: 900px) {
+  body {
+    padding: 18px;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-box {
+    height: 290px;
+  }
+
+  .chart-box canvas {
+    height: 235px !important;
+  }
+}
+
+
+/* =========================================================
+   Responsive - Mobile
+   ========================================================= */
+
+@media (max-width: 600px) {
+  body {
+    padding: 12px;
+  }
+
+  .page-header {
+    margin-top: 4px;
+    margin-bottom: 16px;
+  }
+
+  .page-header h1 {
+    font-size: 22px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+  }
+
+  .updated-at {
+    font-size: 11px;
+  }
+
+  .search-bar {
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+
+  .search-bar input {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .search-bar button {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    margin-bottom: 20px;
+  }
+
+  .metric-card {
+    padding: 12px 8px;
+    border-radius: 9px;
+  }
+
+  .metric-card .value {
+    font-size: 19px;
+  }
+
+  .metric-card .label {
+    font-size: 11px;
+  }
+
+  .section-title {
+    margin-top: 21px;
+    font-size: 15px;
+  }
+
+  .carousel {
+    gap: 9px;
+  }
+
+  .job-card {
+    flex-basis: 220px;
+    width: 220px;
+    padding: 12px;
+  }
+
+  .charts-grid {
+    gap: 10px;
+  }
+
+  .chart-box {
+    height: 265px;
+    padding: 11px;
+    border-radius: 9px;
+  }
+
+  .chart-box h3 {
+    font-size: 13px;
+  }
+
+  .chart-box canvas {
+    height: 215px !important;
+  }
+
+  .skills-list {
+    padding: 13px;
+    gap: 10px;
+  }
+
+  .skills-summary {
+    padding: 12px;
+    font-size: 12px;
+  }
+
+  th,
+  td {
+    padding: 8px 9px;
+    font-size: 11px;
+  }
+}
+
+
+/* =========================================================
+   Very Small Screens
+   ========================================================= */
+
+@media (max-width: 380px) {
+  .metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .metric-card .value {
+    font-size: 17px;
+  }
+
+  .search-bar {
+    gap: 6px;
+  }
+
+  .search-bar button {
+    padding: 9px 10px;
+    font-size: 13px;
+  }
+
+  .job-card {
+    flex-basis: 205px;
+    width: 205px;
+  }
 }
