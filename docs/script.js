@@ -3,10 +3,18 @@ const JOBVISION_API =
 
 const PAGE_SIZE = 30;
 const MAX_LIVE_PAGES = Infinity;
-const SEARCH_TIMEOUT_MS = 20000;
 
-// Number of simultaneous requests to the Worker job-detail endpoint.
-const DETAIL_CONCURRENCY = 10;
+/*
+ * The Worker can retry upstream requests internally.
+ * Give it enough time to finish before the browser aborts.
+ */
+const SEARCH_TIMEOUT_MS = 45000;
+
+/*
+ * Do not overload the Worker / JobVision with
+ * too many simultaneous job-detail requests.
+ */
+const DETAIL_CONCURRENCY = 5;
 
 const DATA_URL = "data/jobs.json";
 const JOBS_PER_PAGE_OPTIONS = [5, 10, 20, 50, 200];
@@ -666,61 +674,81 @@ async function fetchJobDetail(jobId) {
     );
   }
 
-  try {
-    const response =
-      await fetch(
-        `${JOBVISION_API}/job-detail?id=${encodeURIComponent(
-          jobId
-        )}`
+  const url =
+    `${JOBVISION_API}/job-detail?id=${encodeURIComponent(
+      jobId
+    )}`;
+
+  const MAX_ATTEMPTS = 2;
+
+  for (
+    let attempt = 0;
+    attempt < MAX_ATTEMPTS;
+    attempt++
+  ) {
+    try {
+      const response =
+        await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(
+          `Detail API returned ${response.status}`
+        );
+      }
+
+      const data =
+        await response.json();
+
+      const result = {
+        id: jobId,
+
+        skills:
+          Array.isArray(
+            data?.skills
+          )
+            ? data.skills
+            : [],
+
+        failed: false,
+      };
+
+      /*
+       * Cache only successful responses.
+       */
+      jobDetailCache.set(
+        jobId,
+        result
       );
 
-    if (!response.ok) {
-      throw new Error(
-        `Detail API returned ${response.status}`
+      return result;
+    } catch (error) {
+      console.warn(
+        `Failed to fetch job ${jobId} (attempt ${
+          attempt + 1
+        }/${MAX_ATTEMPTS}):`,
+        error
       );
+
+      if (
+        attempt <
+        MAX_ATTEMPTS - 1
+      ) {
+        await new Promise(
+          (resolve) =>
+            setTimeout(
+              resolve,
+              700
+            )
+        );
+      }
     }
-
-    const data =
-      await response.json();
-
-    const result = {
-      id: jobId,
-
-      skills:
-        Array.isArray(
-          data?.skills
-        )
-          ? data.skills
-          : [],
-
-      failed: false,
-    };
-
-    jobDetailCache.set(
-      jobId,
-      result
-    );
-
-    return result;
-  } catch (error) {
-    console.warn(
-      `Failed to fetch job ${jobId}:`,
-      error
-    );
-
-    const result = {
-      id: jobId,
-      skills: [],
-      failed: true,
-    };
-
-    jobDetailCache.set(
-      jobId,
-      result
-    );
-
-    return result;
   }
+
+  return {
+    id: jobId,
+    skills: [],
+    failed: true,
+  };
 }
 
 function updateSkillLoadingProgress(
