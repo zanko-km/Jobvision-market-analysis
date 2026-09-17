@@ -1128,8 +1128,6 @@ function searchMetricsHtml(
   jobs,
   total
 ) {
-  const salary =
-    salaryAnalysis(jobs);
 
   const companies =
     new Set(
@@ -1206,37 +1204,6 @@ function searchMetricsHtml(
         </div>
       </div>
 
-      ${
-        salary.average !== null
-          ? `
-            <div class="metric-card">
-              <div class="value">
-                ${formatNumber(
-                  salary.average,
-                  1
-                )}
-              </div>
-
-              <div class="label">
-                💰 میانگین حقوق (میلیون تومان)
-              </div>
-            </div>
-
-            <div class="metric-card">
-              <div class="value">
-                ${formatNumber(
-                  salary.count
-                )}
-              </div>
-
-              <div class="label">
-                📄 آگهی دارای اطلاعات حقوق
-              </div>
-            </div>
-          `
-          : ""
-      }
-
     </div>
   `;
 }
@@ -1246,6 +1213,29 @@ function salaryAnalysisHtml(
 ) {
   const analysis =
     salaryAnalysis(jobs);
+  
+  const salaries = jobs
+    .map((job) => {
+      const parsed = parseSalary(job.salary);
+
+      if (!parsed) {
+        return null;
+      }
+
+      return {
+        job,
+        ...parsed,
+      };
+    })
+    .filter(Boolean);
+
+  const minSalaryJob = salaries.find(
+    (item) => item.min === analysis.min
+  );
+
+  const maxSalaryJob = salaries.find(
+    (item) => item.max === analysis.max
+  );
 
   if (
     analysis.count === 0
@@ -1288,6 +1278,23 @@ function salaryAnalysisHtml(
         <div class="label">
           کمترین مقدار ثبت‌شده
         </div>
+      
+        ${
+          minSalaryJob?.job?.id
+            ? `
+              <a
+                href="https://jobvision.ir/jobs/${encodeURIComponent(
+                  minSalaryJob.job.id
+                )}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="job-link"
+              >
+                مشاهده آگهی →
+              </a>
+            `
+            : ""
+        }
       </div>
 
       <div class="metric-card">
@@ -1301,6 +1308,24 @@ function salaryAnalysisHtml(
         <div class="label">
           بیشترین مقدار ثبت‌شده
         </div>
+        ${
+          maxSalaryJob?.job?.id
+            ? `
+              <a
+                href="https://jobvision.ir/jobs/${encodeURIComponent(
+                  maxSalaryJob.job.id
+                )}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="job-link"
+              >
+                مشاهده آگهی →
+              </a>
+            `
+            : ""
+        }
+
+
       </div>
 
       <div class="metric-card">
@@ -1545,11 +1570,7 @@ function renderSearchTable(jobs) {
 
   const pageButtons = [];
 
-  for (
-    let page = 1;
-    page <= totalPages;
-    page++
-  ) {
+  function addPageButton(page) {
     pageButtons.push(`
       <button
         type="button"
@@ -1563,6 +1584,55 @@ function renderSearchTable(jobs) {
         ${formatNumber(page)}
       </button>
     `);
+  }
+
+  function addEllipsis() {
+    pageButtons.push(`
+      <span class="pagination-ellipsis">
+        ...
+      </span>
+    `);
+  }
+
+  if (totalPages <= 7) {
+    for (let page = 1; page <= totalPages; page++) {
+      addPageButton(page);
+    }
+  } else {
+    // صفحه اول
+    addPageButton(1);
+
+    // سه‌نقطه سمت چپ
+    if (currentJobsPage > 4) {
+      addEllipsis();
+    }
+
+    // صفحات اطراف صفحه فعلی
+    const startPage = Math.max(
+      2,
+      currentJobsPage - 2
+    );
+
+    const endPage = Math.min(
+      totalPages - 1,
+      currentJobsPage + 2
+    );
+
+    for (
+      let page = startPage;
+      page <= endPage;
+      page++
+    ) {
+      addPageButton(page);
+    }
+
+    // سه‌نقطه سمت راست
+    if (currentJobsPage < totalPages - 3) {
+      addEllipsis();
+    }
+
+    // صفحه آخر
+    addPageButton(totalPages);
   }
 
   const paginationHtml =
