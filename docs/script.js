@@ -1855,7 +1855,7 @@ function renderSearchResults(
       class="charts-grid"
       id="search-charts"
     ></div>
-
+    <div id="search-positions"></div>
   `;
 
   renderSearchCharts(
