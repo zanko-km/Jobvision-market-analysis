@@ -528,81 +528,104 @@ function rawJobToRecord(job) {
   };
 }
 
-async function liveSearch(keyword) {
+async function liveSearch(keyword, onProgress = null) {
   // ----------------------------------------------------------
   // Page 1
   // ----------------------------------------------------------
 
-  const first =
-    await fetchLivePage(
-      keyword,
-      1
-    );
+  const first = await fetchLivePage(keyword, 1);
 
-  const total = Number(
-    first?.jobPostCount || 0
-  );
-
-  const totalPages =
-    Math.ceil(
-      total / PAGE_SIZE
-    );
-
-  const pagesToFetch =
-    Math.min(
-      totalPages,
-      MAX_LIVE_PAGES
-    );
+  const total = Number(first?.jobPostCount || 0);
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   let rawJobs = [
-    ...(first?.jobPosts || []),
+    ...(Array.isArray(first?.jobPosts) ? first.jobPosts : []),
   ];
 
   // ----------------------------------------------------------
-  // Remaining pages
-  //
-  // IMPORTANT:
-  // We intentionally fetch these sequentially instead of
-  // Promise.all(). This prevents sending many simultaneous
-  // requests to the Worker / JobVision.
+  // Helper: deduplicate + convert
   // ----------------------------------------------------------
 
-  for (
-    let page = 2;
-    page <= pagesToFetch;
-    page++
-  ) {
+  function buildResult() {
+    const seen = new Set();
+    const uniqueJobs = [];
+
+    for (const job of rawJobs) {
+      if (!job?.id) continue;
+
+      if (seen.has(job.id)) continue;
+
+      seen.add(job.id);
+      uniqueJobs.push(job);
+    }
+
+    return {
+      total,
+      jobs: uniqueJobs.map(rawJobToRecord),
+    };
+  }
+
+  // ----------------------------------------------------------
+  // Immediately return page 1 to the UI
+  // ----------------------------------------------------------
+
+  let result = buildResult();
+
+  if (typeof onProgress === "function") {
+    onProgress({
+      ...result,
+      currentPage: 1,
+      totalPages,
+      finished: totalPages <= 1,
+    });
+  }
+
+  // ----------------------------------------------------------
+  // Remaining pages
+  // ----------------------------------------------------------
+
+  const pagesToFetch = Math.min(
+    totalPages,
+    MAX_LIVE_PAGES
+  );
+
+  for (let page = 2; page <= pagesToFetch; page++) {
     try {
       console.log(
         `Fetching JobVision page ${page}/${pagesToFetch}...`
       );
 
-      const pageData =
-        await fetchLivePage(
-          keyword,
-          page
-        );
-
-      const pageJobs =
-        Array.isArray(
-          pageData?.jobPosts
-        )
-          ? pageData.jobPosts
-          : [];
-
-      rawJobs.push(
-        ...pageJobs
+      const pageData = await fetchLivePage(
+        keyword,
+        page
       );
+
+      const pageJobs = Array.isArray(pageData?.jobPosts)
+        ? pageData.jobPosts
+        : [];
+
+      rawJobs.push(...pageJobs);
 
       console.log(
         `JobVision page ${page}: ${pageJobs.length} jobs`
       );
 
+      result = buildResult();
+
+      // Update UI after every successfully loaded page.
+      if (typeof onProgress === "function") {
+        onProgress({
+          ...result,
+          currentPage: page,
+          totalPages,
+          finished:
+            page === pagesToFetch ||
+            pageJobs.length < PAGE_SIZE,
+        });
+      }
+
       // No more pages.
-      if (
-        pageJobs.length <
-        PAGE_SIZE
-      ) {
+      if (pageJobs.length < PAGE_SIZE) {
         break;
       }
     } catch (error) {
@@ -612,43 +635,18 @@ async function liveSearch(keyword) {
       );
 
       /*
-       * Do not destroy the entire search.
-       *
-       * If pages 1-4 succeeded and page 5 failed,
-       * we still return pages 1-4.
+       * Keep everything that was successfully loaded.
+       * The caller still receives the accumulated jobs.
        */
       break;
     }
   }
 
   // ----------------------------------------------------------
-  // Deduplicate by JobVision ID
+  // Final result
   // ----------------------------------------------------------
 
-  const seen = new Set();
-  const uniqueJobs = [];
-
-  for (const job of rawJobs) {
-    if (!job?.id) {
-      continue;
-    }
-
-    if (seen.has(job.id)) {
-      continue;
-    }
-
-    seen.add(job.id);
-    uniqueJobs.push(job);
-  }
-
-  return {
-    total,
-
-    jobs:
-      uniqueJobs.map(
-        rawJobToRecord
-      ),
-  };
+  return buildResult();
 }
 
 // ============================================================
@@ -2439,35 +2437,47 @@ async function doSearch() {
   );
 
   try {
-    const result =
-      await liveSearch(
-        keyword
+    const result = await liveSearch(
+    keyword,
+    (progress) => {
+      // Search was cancelled/replaced by another search.
+      if (searchToken !== currentSearchToken) {
+        return;
+      }
+
+      // Show newly loaded jobs immediately.
+      renderSearchResults(
+        progress.jobs,
+        keyword,
+        progress.total,
+        false
       );
 
-    if (
-      searchToken !==
-      currentSearchToken
-    ) {
-      return;
+      // Show loading progress in console.
+      console.log(
+        `Loaded ${progress.jobs.length} / ${progress.total} jobs ` +
+        `(page ${progress.currentPage}/${progress.totalPages})`
+      );
     }
+  );
 
-    renderSearchResults(
-      result.jobs,
-      keyword,
-      result.total,
-      false
-    );
+  if (searchToken !== currentSearchToken) {
+    return;
+  }
 
-    /*
-     * Run skill analysis separately so market analysis
-     * appears immediately and skill analysis can load
-     * independently.
-     */
+  // Final render with ALL successfully loaded jobs.
+  renderSearchResults(
+    result.jobs,
+    keyword,
+    result.total,
+    false
+  );
 
-    analyzeSearchSkills(
-      result.jobs,
-      searchToken
-    );
+  // Analyze skills after all search pages have been collected.
+  analyzeSearchSkills(
+    result.jobs,
+    searchToken
+  );
   } catch (error) {
     console.error(
       "Live search failed:",
