@@ -7,7 +7,7 @@ const LIVE_PAGE_CONCURRENCY = 3;
 
 const SEARCH_TIMEOUT_MS = 17000;
 
-const DETAIL_CONCURRENCY = 8;
+const DETAIL_CONCURRENCY = 6;
 const MAX_SKILL_ANALYSIS_JOBS = 60;
 
 const DATA_URL = "data/jobs.json";
@@ -891,10 +891,11 @@ async function liveSearch(
 
     for (
       let page = start;
-      page <
-        start +
-          LIVE_PAGE_CONCURRENCY &&
-      page <= pagesToLoad;
+      page <=
+        Math.min(
+          start + LIVE_PAGE_CONCURRENCY - 1,
+          pagesToLoad
+        );
       page++
     ) {
       pages.push(page);
