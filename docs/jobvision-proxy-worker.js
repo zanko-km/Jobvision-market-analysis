@@ -9,32 +9,19 @@ const ALLOWED_ORIGIN =
 
 /*
  * ------------------------------------------------------------
- * Timeouts
+ * Configuration
  * ------------------------------------------------------------
- *
- * Search:
- *   15s per upstream attempt
- *   2 attempts maximum
- *
- * Job detail:
- *   10s per upstream attempt
- *   2 attempts maximum
- *
- * The browser has a larger timeout than these values so the
- * Worker has enough time to finish its retries.
  */
 
-const SEARCH_TIMEOUT_MS = 15000;
-const JOB_DETAIL_TIMEOUT_MS = 10000;
+const SEARCH_TIMEOUT_MS = 13000;
+const JOB_DETAIL_TIMEOUT_MS = 15000;
 
-const MAX_SEARCH_RETRIES = 2;
+const MAX_SEARCH_RETRIES = 3;
 const MAX_JOB_DETAIL_RETRIES = 2;
 
-/*
- * Retry backoff.
- */
 const RETRY_BASE_DELAY_MS = 800;
 const RETRY_MAX_DELAY_MS = 5000;
+const RETRY_JITTER_MS = 400;
 
 
 /*
@@ -56,15 +43,19 @@ const corsHeaders = {
  * ------------------------------------------------------------
  */
 
-function jsonResponse(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type":
-        "application/json; charset=utf-8",
-    },
-  });
+function jsonResponse(body, status = 200, extraHeaders = {}) {
+  return new Response(
+    JSON.stringify(body),
+    {
+      status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type":
+          "application/json; charset=utf-8",
+        ...extraHeaders,
+      },
+    }
+  );
 }
 
 
@@ -104,7 +95,7 @@ function normalizeSkillName(name) {
 
 /*
  * ------------------------------------------------------------
- * Timeout fetch
+ * Fetch with timeout
  * ------------------------------------------------------------
  */
 
@@ -116,18 +107,24 @@ async function fetchWithTimeout(
   const controller =
     new AbortController();
 
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  const timeout =
+    setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
 
   try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
+    return await fetch(
+      url,
+      {
+        ...options,
+        signal:
+          controller.signal,
+      }
+    );
   } catch (error) {
     if (
-      error?.name === "AbortError"
+      error?.name ===
+      "AbortError"
     ) {
       throw new Error(
         `Upstream request timed out after ${timeoutMs}ms`
@@ -152,7 +149,10 @@ function shouldRetryStatus(status) {
     status === 408 ||
     status === 425 ||
     status === 429 ||
-    status >= 500
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
   );
 }
 
@@ -170,33 +170,36 @@ function getRetryDelay(
     const seconds =
       Number(retryAfter);
 
-    if (Number.isFinite(seconds)) {
+    if (
+      Number.isFinite(seconds)
+    ) {
       return Math.min(
-        seconds * 1000,
+        Math.max(
+          seconds * 1000,
+          0
+        ),
         RETRY_MAX_DELAY_MS
       );
     }
 
     const date =
-      Date.parse(retryAfter);
+      Date.parse(
+        retryAfter
+      );
 
-    if (Number.isFinite(date)) {
-      return Math.max(
-        0,
-        Math.min(
+    if (
+      Number.isFinite(date)
+    ) {
+      return Math.min(
+        Math.max(
           date - Date.now(),
-          RETRY_MAX_DELAY_MS
-        )
+          0
+        ),
+        RETRY_MAX_DELAY_MS
       );
     }
   }
 
-  /*
-   * Exponential backoff + small random jitter.
-   *
-   * attempt 0 -> ~800-1200ms
-   * attempt 1 -> ~1600-2000ms
-   */
   const exponential =
     Math.min(
       RETRY_MAX_DELAY_MS,
@@ -206,10 +209,14 @@ function getRetryDelay(
 
   const jitter =
     Math.floor(
-      Math.random() * 400
+      Math.random() *
+        RETRY_JITTER_MS
     );
 
-  return exponential + jitter;
+  return (
+    exponential +
+    jitter
+  );
 }
 
 
@@ -256,10 +263,12 @@ function extractSkills(html) {
   let match;
 
   while (
-    (match =
-      tagRegex.exec(
-        sectionHtml
-      )) !== null
+    (
+      match =
+        tagRegex.exec(
+          sectionHtml
+        )
+    ) !== null
   ) {
     const name =
       normalizeSkillName(
@@ -333,12 +342,29 @@ async function fetchJobPage(
           {
             headers: {
               "User-Agent":
-                "Mozilla/5.0 (compatible; JobVisionMarketAnalysis/1.0)",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+
               Accept:
-                "text/html,application/xhtml+xml",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+
               "Accept-Language":
-                "fa-IR,fa;q=0.9,en;q=0.8",
+                "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+
+              Referer:
+                "https://jobvision.ir/",
+
+              "Cache-Control":
+                "no-cache",
+
+              Pragma:
+                "no-cache",
             },
+
+            cache:
+              "no-store",
+
+            redirect:
+              "follow",
           },
           JOB_DETAIL_TIMEOUT_MS
         );
@@ -351,7 +377,7 @@ async function fetchJobPage(
       }
 
       /*
-       * Do not retry permanent errors such as 404.
+       * Permanent errors don't need retry.
        */
       if (
         !shouldRetryStatus(
@@ -373,7 +399,7 @@ async function fetchJobPage(
         );
 
       /*
-       * Release the response body
+       * Release response body
        * before retrying.
        */
       try {
@@ -395,13 +421,12 @@ async function fetchJobPage(
         attempt <
         MAX_JOB_DETAIL_RETRIES - 1
       ) {
-        const delay =
+        await sleep(
           getRetryDelay(
             null,
             attempt
-          );
-
-        await sleep(delay);
+          )
+        );
       }
     }
   }
@@ -456,7 +481,8 @@ async function handleJobDetail(
         {
           error:
             `Job page returned ${upstream.status}`,
-          id: Number(id),
+          id:
+            Number(id),
         },
         upstream.status
       );
@@ -469,10 +495,14 @@ async function handleJobDetail(
       extractSkills(html);
 
     return jsonResponse({
-      id: Number(id),
+      id:
+        Number(id),
+
       skills,
+
       skillCount:
         skills.length,
+
       source:
         "jobvision-html",
     });
@@ -488,7 +518,10 @@ async function handleJobDetail(
           error instanceof Error
             ? error.message
             : String(error),
-        id: Number(id),
+
+        id:
+          Number(id),
+
         source:
           "jobvision-job-detail",
       },
@@ -522,7 +555,8 @@ async function fetchSearchUpstream(
         await fetchWithTimeout(
           SEARCH_TARGET,
           {
-            method: "POST",
+            method:
+              "POST",
 
             headers: {
               "Content-Type":
@@ -532,8 +566,26 @@ async function fetchSearchUpstream(
                 "application/json,text/plain,*/*",
 
               "User-Agent":
-                "Mozilla/5.0 (compatible; JobVisionMarketAnalysis/1.0)",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+
+              Origin:
+                "https://jobvision.ir",
+
+              Referer:
+                "https://jobvision.ir/",
+
+              "Cache-Control":
+                "no-cache",
+
+              Pragma:
+                "no-cache",
             },
+
+            cache:
+              "no-store",
+
+            redirect:
+              "follow",
 
             body,
           },
@@ -549,8 +601,7 @@ async function fetchSearchUpstream(
       }
 
       /*
-       * Do not retry 4xx errors that are not
-       * transient.
+       * Don't retry permanent 4xx errors.
        */
       if (
         !shouldRetryStatus(
@@ -590,13 +641,12 @@ async function fetchSearchUpstream(
         attempt <
         MAX_SEARCH_RETRIES - 1
       ) {
-        const delay =
+        await sleep(
           getRetryDelay(
             null,
             attempt
-          );
-
-        await sleep(delay);
+          )
+        );
       }
     }
   }
@@ -636,8 +686,7 @@ async function handleSearch(
   }
 
   /*
-   * Validate JSON before sending it
-   * to JobVision.
+   * Validate JSON before sending it.
    */
   try {
     JSON.parse(body);
@@ -720,6 +769,8 @@ export default {
       return new Response(
         null,
         {
+          status: 204,
+
           headers:
             corsHeaders,
         }
