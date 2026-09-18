@@ -363,45 +363,25 @@ async function fetchLivePage(
       `Requesting JobVision page ${page}`
     );
 
-    const response =
-      await fetch(
-        JOBVISION_API,
-        {
-          method: "POST",
-          mode: "cors",
-          cache: "no-store",
-          keepalive: false,
-          headers: {
-            "Content-Type":
-              "application/json",
-            Accept:
-              "application/json",
-          },
-          signal:
-            controller.signal,
-          body: JSON.stringify({
-            jobCategoryUrlTitle:
-              null,
-
-            keyword,
-
-            locationWrapper:
-              null,
-
-            pageSize:
-              PAGE_SIZE,
-
-            requestedPage:
-              page,
-
-            sortBy:
-              1,
-
-            searchId:
-              null,
-          }),
-        }
-      );
+    const response = await fetch(`${JOBVISION_API}/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+      },
+      body: JSON.stringify({
+        jobCategoryUrlTitle: null,
+        keyword,
+        locationWrapper: null,
+        pageSize: PAGE_SIZE,
+        requestedPage: page,
+        sortBy: 1,
+        searchId: null,
+      }),
+      signal: controller.signal,
+      cache: "no-store",
+    });
 
     if (!response.ok) {
       throw new Error(
