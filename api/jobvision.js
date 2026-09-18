@@ -12,9 +12,9 @@ const JOB_DETAIL_TIMEOUT_MS = 15000;
 
 function corsHeaders() {
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+    "Access-Control-Allow-Origin": "https://zanko-km.github.io",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Cache-Control, Accept",
     "Vary": "Origin",
   };
 }
