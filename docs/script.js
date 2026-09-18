@@ -8,7 +8,6 @@ const LIVE_PAGE_CONCURRENCY = 3;
 const SEARCH_TIMEOUT_MS = 17000;
 
 const DETAIL_CONCURRENCY = 6;
-const MAX_SKILL_ANALYSIS_JOBS = 60;
 
 const DATA_URL = "data/jobs.json";
 
@@ -1442,14 +1441,9 @@ async function analyzeSearchSkills(
   signal
 ) {
   const validJobs =
-    jobs
-      .filter(
-        (job) => job?.id
-      )
-      .slice(
-        0,
-        MAX_SKILL_ANALYSIS_JOBS
-      );
+    jobs.filter(
+      (job) => job?.id
+    );
 
   if (!validJobs.length) {
     renderSkillAnalysis(
