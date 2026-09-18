@@ -2,7 +2,7 @@ const JOBVISION_API =
   "https://jobvision-market-analysis.vercel.app";
 
 const PAGE_SIZE = 30;
-const MAX_LIVE_PAGES = 10;
+const MAX_LIVE_PAGES = 300;
 const LIVE_PAGE_CONCURRENCY = 3;
 
 const SEARCH_TIMEOUT_MS = 17000;
@@ -583,7 +583,8 @@ async function fetchLivePage(
 
     const json =
       await response.json();
-
+    console.log("JOBVISION RAW RESPONSE:", json);
+    console.log("FIRST JOB:", json?.data?.jobPosts?.[0]);
     if (!json?.data) {
       throw new Error(
         "Unexpected JobVision response"
