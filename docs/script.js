@@ -7,7 +7,7 @@ const LIVE_PAGE_CONCURRENCY = 3;
 
 const SEARCH_TIMEOUT_MS = 17000;
 
-const DETAIL_CONCURRENCY = 60;
+const DETAIL_CONCURRENCY = 50;
 
 const DATA_URL = "data/jobs.json";
 
@@ -901,7 +901,7 @@ async function liveSearch(
   }
 
   let loadedPages = 1;
-
+  const failedPages = new Set();
   for (
     let start = 2;
     start <= pagesToLoad;
@@ -957,16 +957,10 @@ async function liveSearch(
     loadedPages +=
       batch.successful.length;
 
-    if (
-      batch.failed.length
-    ) {
-      console.warn(
-        "Failed search pages:",
-        batch.failed.map(
-          (item) =>
-            item.page
-        )
-      );
+    if (batch.failed.length) {
+      for (const item of batch.failed) {
+        failedPages.add(item.page);
+      }
     }
 
     onProgress?.({
@@ -988,7 +982,67 @@ async function liveSearch(
         pagesToLoad,
     });
   }
+  const MAX_SEARCH_PAGE_RETRIES = 2;
 
+  for (
+    let retry = 1;
+    retry <= MAX_SEARCH_PAGE_RETRIES &&
+    failedPages.size > 0;
+    retry++
+  ) {
+    const pagesToRetry = [
+      ...failedPages,
+    ];
+
+    console.log(
+      `Retrying ${pagesToRetry.length} failed search pages (attempt ${retry}/${MAX_SEARCH_PAGE_RETRIES})...`,
+      pagesToRetry
+    );
+
+    const retryBatch =
+      await fetchPageBatch(
+        normalizedKeyword,
+        pagesToRetry,
+        signal
+      );
+
+    for (const item of retryBatch.successful) {
+      jobs.push(
+        ...extractJobsFromPage(
+          item.data
+        ).map(
+          rawJobToRecord
+        )
+      );
+
+      failedPages.delete(
+        item.page
+      );
+
+      loadedPages++;
+    }
+
+    jobs = dedupeJobs(jobs);
+
+    onProgress?.({
+      jobs,
+      total,
+      loadedPages,
+      totalPages: pagesToLoad,
+      failedPages: [
+        ...failedPages,
+      ],
+      complete:
+        failedPages.size === 0,
+    });
+  }
+
+  if (failedPages.size) {
+    console.warn(
+      "Search pages still failed after retries:",
+      [...failedPages]
+    );
+  }
   return {
     jobs,
     total,
