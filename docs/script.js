@@ -583,8 +583,6 @@ async function fetchLivePage(
 
     const json =
       await response.json();
-    console.log("JOBVISION RAW RESPONSE:", json);
-    console.log("FIRST JOB:", json?.data?.jobPosts?.[0]);
     if (!json?.data) {
       throw new Error(
         "Unexpected JobVision response"
@@ -615,61 +613,93 @@ function rawJobToRecord(job) {
   return {
     id:
       job.id ??
-      job.jobPostId ??
-      job.jobPostID ??
       null,
 
     title:
       job.title ??
-      job.jobTitle ??
       "",
 
     company:
-      job.companyName ??
-      job.company?.name ??
+      job.company?.nameFa ??
+      job.company?.nameEn ??
       "",
 
     province:
-      job.provinceName ??
-      job.province?.name ??
+      job.location?.province?.titleFa ??
+      job.location?.province?.titleEn ??
       "",
 
     city:
-      job.cityName ??
-      job.city?.name ??
+      job.location?.city?.titleFa ??
+      job.location?.city?.titleEn ??
       "",
 
     categories:
-      Array.isArray(
-        job.categories
-      )
-        ? job.categories
+      Array.isArray(job.jobCategories)
+        ? job.jobCategories
+            .map(category =>
+              category?.titleFa ??
+              category?.titleEn ??
+              ""
+            )
+            .filter(Boolean)
+        : [],
+
+    benefits:
+      Array.isArray(job.benefits)
+        ? job.benefits
+            .map(benefit =>
+              benefit?.titleFa ??
+              benefit?.titleEn ??
+              ""
+            )
+            .filter(Boolean)
         : [],
 
     work_type:
-      job.workType ??
-      job.employmentType ??
+      job.workType?.titleFa ??
+      job.workType?.titleEn ??
       "",
 
     seniority:
-      job.seniority ??
-      job.experienceLevel ??
+      job.seniorityLevel?.titleFa ??
+      job.seniorityLevel?.titleEn ??
+      "",
+
+    industry:
+      job.industry?.titleFa ??
+      job.industry?.titleEn ??
+      "",
+
+    gender:
+      job.gender?.titleFa ??
+      job.gender?.titleEn ??
       "",
 
     is_remote:
-      Boolean(
-        job.isRemote ??
-        job.remote
-      ),
+      Boolean(job.properties?.isRemote),
+
+    is_internship:
+      Boolean(job.properties?.isInternship),
+
+    is_urgent:
+      Boolean(job.properties?.isUrgent),
+
+    experience_years:
+      job.properties?.requiredRelatedExperienceYears ??
+      null,
 
     salary:
       job.salary ??
-      job.salaryDescription ??
       "",
 
     activation_date:
-      job.activationDate ??
-      job.createdAt ??
+      job.activationTime?.date ??
+      job.firstActivationTime?.date ??
+      "",
+
+    expire_date:
+      job.expireTime?.date ??
       "",
   };
 }
