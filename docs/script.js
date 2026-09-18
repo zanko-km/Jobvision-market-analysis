@@ -2,14 +2,25 @@ const JOBVISION_API =
   "https://late-recipe-0638.zankokarimy.workers.dev";
 
 const PAGE_SIZE = 30;
-const MAX_LIVE_PAGES = 20;
-const SEARCH_TIMEOUT_MS = 45000;
-const PAGE_REQUEST_DELAY_MS = 1500;
-const PAGE_RETRY_ATTEMPTS = 3;
-const DETAIL_CONCURRENCY = 5;
+
+const MAX_LIVE_PAGES = 10;
+
+const LIVE_PAGE_CONCURRENCY = 3;
+
+const SEARCH_TIMEOUT_MS = 30000;
+
+const DETAIL_CONCURRENCY = 8;
 
 const DATA_URL = "data/jobs.json";
-const JOBS_PER_PAGE_OPTIONS = [5, 10, 20, 50, 200];
+
+const JOBS_PER_PAGE_OPTIONS = [
+  5,
+  10,
+  20,
+  50,
+  200,
+];
+
 const DEFAULT_JOBS_PER_PAGE = 5;
 
 let currentJobsPage = 1;
@@ -325,239 +336,465 @@ function salaryAnalysis(jobs) {
   };
 }
 
-async function fetchLivePage(keyword, page) {
-  let lastError = null;
+async function fetchLivePage(
+  keyword,
+  page,
+  signal
+) {
+  const controller =
+    new AbortController();
 
-  for (
-    let attempt = 1;
-    attempt <= PAGE_RETRY_ATTEMPTS;
-    attempt++
-  ) {
-    const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, SEARCH_TIMEOUT_MS);
 
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, SEARCH_TIMEOUT_MS);
+  const abortHandler = () => {
+    controller.abort();
+  };
 
-    try {
-      console.log(
-        `Requesting JobVision page ${page} ` +
-        `(attempt ${attempt}/${PAGE_RETRY_ATTEMPTS})`
-      );
+  signal?.addEventListener(
+    "abort",
+    abortHandler,
+    { once: true }
+  );
 
-      const response = await fetch(
+  try {
+    console.log(
+      `Requesting JobVision page ${page}`
+    );
+
+    const response =
+      await fetch(
         JOBVISION_API,
         {
           method: "POST",
+          mode: "cors",
+          cache: "no-store",
+          keepalive: false,
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
+            Accept:
+              "application/json",
           },
-          signal: controller.signal,
+          signal:
+            controller.signal,
           body: JSON.stringify({
-            jobCategoryUrlTitle: null,
+            jobCategoryUrlTitle:
+              null,
+
             keyword,
-            locationWrapper: null,
-            pageSize: PAGE_SIZE,
-            requestedPage: page,
-            sortBy: 1,
-            searchId: null,
+
+            locationWrapper:
+              null,
+
+            pageSize:
+              PAGE_SIZE,
+
+            requestedPage:
+              page,
+
+            sortBy:
+              1,
+
+            searchId:
+              null,
           }),
         }
       );
 
-      if (!response.ok) {
-        throw new Error(
-          `JobVision API returned ${response.status}`
-        );
-      }
-
-      const json = await response.json();
-
-      if (!json?.data) {
-        throw new Error(
-          "Unexpected JobVision API response"
-        );
-      }
-
-      return json.data;
-    } catch (error) {
-      lastError = error;
-
-      if (error?.name === "AbortError") {
-        lastError = new Error(
-          `Search page ${page} timed out after ${
-            SEARCH_TIMEOUT_MS / 1000
-          } seconds`
-        );
-      }
-
-      console.warn(
-        `Page ${page} failed ` +
-        `(attempt ${attempt}/${PAGE_RETRY_ATTEMPTS}):`,
-        lastError
+    if (!response.ok) {
+      throw new Error(
+        `JobVision returned HTTP ${response.status}`
       );
-
-      if (attempt < PAGE_RETRY_ATTEMPTS) {
-        await sleep(
-          PAGE_REQUEST_DELAY_MS * attempt
-        );
-      }
-    } finally {
-      clearTimeout(timeout);
     }
-  }
 
-  throw (
-    lastError ||
-    new Error(
-      `Failed to fetch JobVision page ${page}`
-    )
-  );
+    const json =
+      await response.json();
+
+    if (!json?.data) {
+      throw new Error(
+        "Unexpected JobVision response"
+      );
+    }
+
+    return json.data;
+  } catch (error) {
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
+      throw new Error(
+        `Search page ${page} timed out`
+      );
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+
+    signal?.removeEventListener(
+      "abort",
+      abortHandler
+    );
+  }
 }
 
-function rawJobToRecord(job) {
-  const properties = job?.properties || {};
-  const company = job?.company || {};
-  const location = job?.location || {};
-  const province = location?.province || {};
-  const city = location?.city || {};
-  const workType = job?.workType || {};
-  const seniority = job?.seniorityLevel || {};
-  const salary = job?.salary || {};
-  const activationTime =
-    job?.activationTime || {};
 
+function rawJobToRecord(job) {
   return {
-    id: job?.id,
-    title: job?.title || "",
-    company: company?.nameFa || "",
-    province: province?.titleFa || "",
-    city: city?.titleFa || "",
+    id:
+      job.id ??
+      job.jobPostId ??
+      job.jobPostID ??
+      null,
+
+    title:
+      job.title ??
+      job.jobTitle ??
+      "",
+
+    company:
+      job.companyName ??
+      job.company?.name ??
+      "",
+
+    province:
+      job.provinceName ??
+      job.province?.name ??
+      "",
+
+    city:
+      job.cityName ??
+      job.city?.name ??
+      "",
+
     categories:
-      (job?.jobCategories || [])
-        .map((item) => item?.titleFa)
-        .filter(Boolean)
-        .join(", "),
-    work_type: workType?.titleFa || "",
-    seniority: seniority?.titleFa || "",
-    is_remote: Boolean(properties?.isRemote),
-    salary: salary?.titleFa || "",
-    activation_date: activationTime?.date || "",
+      Array.isArray(
+        job.categories
+      )
+        ? job.categories
+        : [],
+
+    work_type:
+      job.workType ??
+      job.employmentType ??
+      "",
+
+    seniority:
+      job.seniority ??
+      job.experienceLevel ??
+      "",
+
+    is_remote:
+      Boolean(
+        job.isRemote ??
+        job.remote
+      ),
+
+    salary:
+      job.salary ??
+      job.salaryDescription ??
+      "",
+
+    activation_date:
+      job.activationDate ??
+      job.createdAt ??
+      "",
   };
 }
 
-async function liveSearch(keyword, onProgress = null) {
-  const first = await fetchLivePage(keyword, 1);
 
-  const total = Number(
-    first?.jobPostCount || 0
+function getJobId(job) {
+  return (
+    job?.id ??
+    job?.jobPostId ??
+    job?.jobPostID ??
+    null
   );
+}
 
-  const totalPages = Math.ceil(
-    total / PAGE_SIZE
-  );
 
-  let rawJobs = [
-    ...(Array.isArray(first?.jobPosts)
-      ? first.jobPosts
-      : []),
-  ];
+function dedupeJobs(jobs) {
+  const result = [];
+  const seen = new Set();
 
-  function buildResult() {
-    const seen = new Set();
-    const uniqueJobs = [];
+  for (const job of jobs) {
+    const id = getJobId(job);
 
-    for (const job of rawJobs) {
-      if (!job?.id) {
-        continue;
-      }
-
-      if (seen.has(job.id)) {
-        continue;
-      }
-
-      seen.add(job.id);
-      uniqueJobs.push(job);
+    if (id == null) {
+      continue;
     }
 
+    const key = String(id);
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(job);
+  }
+
+  return result;
+}
+
+
+async function fetchPageBatch(
+  keyword,
+  pages,
+  signal
+) {
+  const results =
+    await Promise.allSettled(
+      pages.map((page) =>
+        fetchLivePage(
+          keyword,
+          page,
+          signal
+        )
+      )
+    );
+
+  const successful = [];
+  const failed = [];
+
+  results.forEach(
+    (result, index) => {
+      const page =
+        pages[index];
+
+      if (
+        result.status ===
+        "fulfilled"
+      ) {
+        successful.push({
+          page,
+          data:
+            result.value,
+        });
+      } else {
+        failed.push({
+          page,
+          error:
+            result.reason,
+        });
+      }
+    }
+  );
+
+  successful.sort(
+    (a, b) =>
+      a.page - b.page
+  );
+
+  failed.sort(
+    (a, b) =>
+      a.page - b.page
+  );
+
+  return {
+    successful,
+    failed,
+  };
+}
+
+
+async function liveSearch(
+  keyword,
+  onProgress,
+  signal
+) {
+  const normalizedKeyword =
+    String(keyword || "").trim();
+
+  if (!normalizedKeyword) {
     return {
-      total,
-      jobs: uniqueJobs.map(rawJobToRecord),
+      jobs: [],
+      total: 0,
+      loadedPages: 0,
+      totalPages: 0,
     };
   }
 
-  let result = buildResult();
+  const firstPage =
+    await fetchLivePage(
+      normalizedKeyword,
+      1,
+      signal
+    );
 
-  if (typeof onProgress === "function") {
-    onProgress({
-      ...result,
-      currentPage: 1,
+  const total =
+    Number(
+      firstPage.jobPostCount ??
+      firstPage.totalCount ??
+      firstPage.count ??
+      0
+    );
+
+  const firstPageJobs =
+    Array.isArray(
+      firstPage.jobPosts
+    )
+      ? firstPage.jobPosts
+      : Array.isArray(
+          firstPage.jobs
+        )
+      ? firstPage.jobs
+      : Array.isArray(
+          firstPage.items
+        )
+      ? firstPage.items
+      : [];
+
+  let jobs =
+    dedupeJobs(
+      firstPageJobs.map(
+        rawJobToRecord
+      )
+    );
+
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        total /
+          PAGE_SIZE
+      )
+    );
+
+  const pagesToLoad =
+    Math.min(
       totalPages,
-      finished: totalPages <= 1,
+      MAX_LIVE_PAGES
+    );
+
+  onProgress?.({
+    jobs,
+    total,
+    loadedPages: 1,
+    totalPages:
+      pagesToLoad,
+    complete:
+      pagesToLoad === 1,
+  });
+
+  if (
+    pagesToLoad <= 1
+  ) {
+    return {
+      jobs,
+      total,
+      loadedPages: 1,
+      totalPages:
+        pagesToLoad,
+    };
+  }
+
+  let loadedPages = 1;
+
+  for (
+    let start = 2;
+    start <= pagesToLoad;
+    start +=
+      LIVE_PAGE_CONCURRENCY
+  ) {
+    if (signal?.aborted) {
+      throw new DOMException(
+        "Search cancelled",
+        "AbortError"
+      );
+    }
+
+    const pages = [];
+
+    for (
+      let page = start;
+      page <
+        start +
+          LIVE_PAGE_CONCURRENCY &&
+      page <= pagesToLoad;
+      page++
+    ) {
+      pages.push(page);
+    }
+
+    const batch =
+      await fetchPageBatch(
+        normalizedKeyword,
+        pages,
+        signal
+      );
+
+    for (
+      const item of
+        batch.successful
+    ) {
+      const pageJobs =
+        Array.isArray(
+          item.data.jobPosts
+        )
+          ? item.data.jobPosts
+          : Array.isArray(
+              item.data.jobs
+            )
+          ? item.data.jobs
+          : Array.isArray(
+              item.data.items
+            )
+          ? item.data.items
+          : [];
+
+      jobs.push(
+        ...pageJobs.map(
+          rawJobToRecord
+        )
+      );
+    }
+
+    jobs =
+      dedupeJobs(jobs);
+
+    loadedPages +=
+      batch.successful.length;
+
+    if (
+      batch.failed.length
+    ) {
+      console.warn(
+        "Failed search pages:",
+        batch.failed.map(
+          (item) =>
+            item.page
+        )
+      );
+    }
+
+    onProgress?.({
+      jobs,
+      total,
+      loadedPages,
+      totalPages:
+        pagesToLoad,
+      failedPages:
+        batch.failed.map(
+          (item) =>
+            item.page
+        ),
+      complete:
+        start +
+          LIVE_PAGE_CONCURRENCY >
+        pagesToLoad,
     });
   }
 
-  const pagesToFetch = Math.min(
-    totalPages,
-    MAX_LIVE_PAGES
-  );
-
-  for (
-    let page = 2;
-    page <= pagesToFetch;
-    page++
-  ) {
-    try {
-      await sleep(PAGE_REQUEST_DELAY_MS);
-
-      console.log(
-        `Fetching JobVision page ${page}/${pagesToFetch}...`
-      );
-
-      const pageData =
-        await fetchLivePage(
-          keyword,
-          page
-        );
-
-      const pageJobs =
-        Array.isArray(pageData?.jobPosts)
-          ? pageData.jobPosts
-          : [];
-
-      rawJobs.push(...pageJobs);
-
-      console.log(
-        `JobVision page ${page}: ${pageJobs.length} jobs`
-      );
-
-      result = buildResult();
-
-      if (typeof onProgress === "function") {
-        onProgress({
-          ...result,
-          currentPage: page,
-          totalPages,
-          finished:
-            page === pagesToFetch ||
-            pageJobs.length < PAGE_SIZE,
-        });
-      }
-
-      if (pageJobs.length < PAGE_SIZE) {
-        break;
-      }
-    } catch (error) {
-      console.warn(
-        `Failed to fetch JobVision page ${page}:`,
-        error
-      );
-
-      break;
-    }
-  }
-
-  return buildResult();
+  return {
+    jobs,
+    total,
+    loadedPages,
+    totalPages:
+      pagesToLoad,
+  };
 }
 
 function normalizeSkillName(name) {
@@ -568,9 +805,22 @@ function normalizeSkillKey(name) {
   return normalizeSkillName(name).toLowerCase();
 }
 
-async function fetchJobDetail(jobId) {
-  if (jobDetailCache.has(jobId)) {
-    return jobDetailCache.get(jobId);
+async function fetchJobDetail(
+  jobId
+) {
+  if (!jobId) {
+    return null;
+  }
+
+  const key =
+    String(jobId);
+
+  if (
+    jobDetailCache.has(key)
+  ) {
+    return jobDetailCache.get(
+      key
+    );
   }
 
   const url =
@@ -578,57 +828,56 @@ async function fetchJobDetail(jobId) {
       jobId
     )}`;
 
-  const MAX_ATTEMPTS = 2;
+  let lastError = null;
 
   for (
-    let attempt = 0;
-    attempt < MAX_ATTEMPTS;
+    let attempt = 1;
+    attempt <= 2;
     attempt++
   ) {
     try {
-      const response = await fetch(url);
+      const response =
+        await fetch(url, {
+          method: "GET",
+          cache: "force-cache",
+        });
 
       if (!response.ok) {
         throw new Error(
-          `Detail API returned ${response.status}`
+          `Job detail returned HTTP ${response.status}`
         );
       }
 
-      const data = await response.json();
-
-      const result = {
-        id: jobId,
-        skills:
-          Array.isArray(data?.skills)
-            ? data.skills
-            : [],
-        failed: false,
-      };
+      const data =
+        await response.json();
 
       jobDetailCache.set(
-        jobId,
-        result
+        key,
+        data
       );
 
-      return result;
+      return data;
     } catch (error) {
-      console.warn(
-        `Failed to fetch job ${jobId} ` +
-        `(attempt ${attempt + 1}/${MAX_ATTEMPTS}):`,
-        error
-      );
+      lastError = error;
 
-      if (attempt < MAX_ATTEMPTS - 1) {
-        await sleep(700);
+      if (attempt < 2) {
+        await new Promise(
+          (resolve) =>
+            setTimeout(
+              resolve,
+              500
+            )
+        );
       }
     }
   }
 
-  return {
-    id: jobId,
-    skills: [],
-    failed: true,
-  };
+  console.warn(
+    `Job detail failed for ${jobId}:`,
+    lastError
+  );
+
+  return null;
 }
 
 function updateSkillLoadingProgress(
@@ -673,51 +922,86 @@ async function fetchJobDetails(
   jobIds,
   searchToken
 ) {
-  const results = new Array(jobIds.length);
-  let nextIndex = 0;
+  const uniqueIds =
+    [
+      ...new Set(
+        jobIds
+          .filter(Boolean)
+          .map(String)
+      ),
+    ];
+
+  const results = new Map();
+
+  let completed = 0;
+
+  updateSkillLoadingProgress(
+    0,
+    uniqueIds.length
+  );
+
+  let cursor = 0;
 
   async function worker() {
     while (true) {
-      const index = nextIndex++;
-
-      if (index >= jobIds.length) {
+      if (
+        searchToken !==
+        currentSearchToken
+      ) {
         return;
       }
 
-      const detail =
-        await fetchJobDetail(
-          jobIds[index]
-        );
-
-      results[index] = detail;
+      const index =
+        cursor++;
 
       if (
-        searchToken ===
-        currentSearchToken
+        index >=
+        uniqueIds.length
       ) {
-        updateSkillLoadingProgress(
-          index + 1,
-          jobIds.length
+        return;
+      }
+
+      const id =
+        uniqueIds[index];
+
+      const data =
+        await fetchJobDetail(
+          id
+        );
+
+      if (data) {
+        results.set(
+          id,
+          data
         );
       }
+
+      completed++;
+
+      updateSkillLoadingProgress(
+        completed,
+        uniqueIds.length
+      );
     }
   }
 
-  const workerCount = Math.min(
-    DETAIL_CONCURRENCY,
-    jobIds.length
-  );
+  const workerCount =
+    Math.min(
+      DETAIL_CONCURRENCY,
+      uniqueIds.length
+    );
 
   await Promise.all(
     Array.from(
       {
-        length: workerCount,
+        length:
+          workerCount,
       },
-      () => worker()
+      worker
     )
   );
 
-  return results.filter(Boolean);
+  return results;
 }
 
 function aggregateSkills(details) {
@@ -2233,40 +2517,33 @@ function showSearchLoading(keyword) {
 
 async function doSearch() {
   const input =
-    $("search-input");
+    document.querySelector(
+      "#searchInput"
+    );
 
-  const backButton =
-    $("backBtn");
+  const query =
+    input?.value?.trim();
 
-  if (!input) {
-    return;
-  }
-
-  const keyword =
-    input.value.trim();
-
-  if (!keyword) {
+  if (!query) {
     return;
   }
 
   const searchToken =
     ++currentSearchToken;
 
-  if (backButton) {
-    backButton.classList.remove(
-      "hidden"
-    );
-  }
-
-  showSearchLoading(
-    keyword
-  );
+  showSearchLoading();
 
   try {
     const result =
       await liveSearch(
-        keyword,
-        (progress) => {
+        query,
+        ({
+          jobs,
+          total,
+          loadedPages,
+          totalPages,
+          complete,
+        }) => {
           if (
             searchToken !==
             currentSearchToken
@@ -2275,16 +2552,27 @@ async function doSearch() {
           }
 
           renderSearchResults(
-            progress.jobs,
-            keyword,
-            progress.total,
-            false
+            jobs,
+            query,
+            total
           );
 
-          console.log(
-            `Loaded ${progress.jobs.length} / ${progress.total} jobs ` +
-            `(page ${progress.currentPage}/${progress.totalPages})`
-          );
+          const status =
+            document.querySelector(
+              "#searchLoadingStatus"
+            );
+
+          if (status) {
+            if (complete) {
+              status.textContent =
+                `جستجو کامل شد — ${jobs.length.toLocaleString(
+                  "fa-IR"
+                )} آگهی`;
+            } else {
+              status.textContent =
+                `در حال دریافت نتایج... صفحه ${loadedPages} از ${totalPages}`;
+            }
+          }
         }
       );
 
@@ -2297,81 +2585,60 @@ async function doSearch() {
 
     renderSearchResults(
       result.jobs,
-      keyword,
-      result.total,
-      false
+      query,
+      result.total
     );
 
-    analyzeSearchSkills(
+    await analyzeSearchSkills(
       result.jobs,
       searchToken
     );
   } catch (error) {
+    if (
+      searchToken !==
+      currentSearchToken
+    ) {
+      return;
+    }
+
     console.error(
       "Live search failed:",
       error
     );
 
-    const query =
-      keyword.toLowerCase();
+    const normalizedQuery =
+      normalizeText(query);
 
-    const filtered =
+    const fallback =
       OVERVIEW_JOBS.filter(
         (job) => {
-          const title =
+          const text =
             normalizeText(
-              job.title
-            ).toLowerCase();
+              [
+                job.title,
+                job.company,
+                job.city,
+                job.province,
+                ...(Array.isArray(
+                  job.categories
+                )
+                  ? job.categories
+                  : []),
+              ].join(" ")
+            );
 
-          const company =
-            normalizeText(
-              job.company
-            ).toLowerCase();
-
-          const categories =
-            normalizeText(
-              job.categories
-            ).toLowerCase();
-
-          return (
-            title.includes(
-              query
-            ) ||
-            company.includes(
-              query
-            ) ||
-            categories.includes(
-              query
-            )
+          return text.includes(
+            normalizedQuery
           );
         }
       );
 
-    if (
-      searchToken !==
-      currentSearchToken
-    ) {
-      return;
-    }
-
     renderSearchResults(
-      filtered,
-      keyword,
-      filtered.length,
+      fallback,
+      query,
+      fallback.length,
       true
     );
-
-    const skills =
-      $("skills-analysis");
-
-    if (skills) {
-      skills.innerHTML = `
-        <div class="skills-empty">
-          تحلیل مهارت در حالت داده‌ی ذخیره‌شده فعال نیست؛
-          برای Skill Analysis باید جستجوی زنده موفق باشد.
-        </div>
-      `;
-    }
   }
 }
 
