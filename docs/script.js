@@ -7,7 +7,7 @@ const LIVE_PAGE_CONCURRENCY = 3;
 
 const SEARCH_TIMEOUT_MS = 17000;
 
-const DETAIL_CONCURRENCY = 6;
+const DETAIL_CONCURRENCY = 30;
 
 const DATA_URL = "data/jobs.json";
 
