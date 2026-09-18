@@ -2471,40 +2471,29 @@ async function loadOverviewData() {
 }
 
 function showSearchLoading(keyword) {
-  const overview =
-    $("overview-section");
-
-  const search =
-    $("search-section");
+  const overview = $("overview-section");
+  const search = $("search-section");
 
   if (overview) {
-    overview.classList.add(
-      "hidden"
-    );
+    overview.classList.add("hidden");
   }
 
   if (search) {
-    search.classList.remove(
-      "hidden"
-    );
+    search.classList.remove("hidden");
   }
 
-  const results =
-    $("search-results");
+  const results = $("search-results");
 
   if (results) {
     results.innerHTML = `
       <div class="info-box">
         🔍 در حال جستجوی زنده در JobVision برای
-        «${escapeHtml(
-          keyword
-        )}»...
+        «${escapeHtml(keyword)}»...
       </div>
     `;
   }
 
-  const skills =
-    $("skills-analysis");
+  const skills = $("skills-analysis");
 
   if (skills) {
     skills.innerHTML = `
@@ -2517,69 +2506,56 @@ function showSearchLoading(keyword) {
 
 async function doSearch() {
   const input =
-    document.querySelector(
-      "#searchInput"
-    );
+    document.querySelector("#search-input") ||
+    document.querySelector("#searchInput");
 
-  const query =
-    input?.value?.trim();
+  const query = input?.value?.trim();
 
   if (!query) {
     return;
   }
 
-  const searchToken =
-    ++currentSearchToken;
+  const searchToken = ++currentSearchToken;
 
-  showSearchLoading();
+  showSearchLoading(query);
 
   try {
-    const result =
-      await liveSearch(
-        query,
-        ({
+    const result = await liveSearch(
+      query,
+      ({
+        jobs,
+        total,
+        loadedPages,
+        totalPages,
+        complete,
+      }) => {
+        if (searchToken !== currentSearchToken) {
+          return;
+        }
+
+        renderSearchResults(
           jobs,
-          total,
-          loadedPages,
-          totalPages,
-          complete,
-        }) => {
-          if (
-            searchToken !==
-            currentSearchToken
-          ) {
-            return;
-          }
+          query,
+          total
+        );
 
-          renderSearchResults(
-            jobs,
-            query,
-            total
-          );
+        const status =
+          document.querySelector("#searchLoadingStatus");
 
-          const status =
-            document.querySelector(
-              "#searchLoadingStatus"
-            );
-
-          if (status) {
-            if (complete) {
-              status.textContent =
-                `جستجو کامل شد — ${jobs.length.toLocaleString(
-                  "fa-IR"
-                )} آگهی`;
-            } else {
-              status.textContent =
-                `در حال دریافت نتایج... صفحه ${loadedPages} از ${totalPages}`;
-            }
+        if (status) {
+          if (complete) {
+            status.textContent =
+              `جستجو کامل شد — ${jobs.length.toLocaleString("fa-IR")} آگهی`;
+          } else {
+            status.textContent =
+              `در حال دریافت نتایج... صفحه ${loadedPages} از ${totalPages}`;
           }
         }
-      );
+      },
+      null
+    );
 
-    if (
-      searchToken !==
-      currentSearchToken
-    ) {
+    if (searchToken !== currentSearchToken) {
       return;
     }
 
@@ -2594,10 +2570,7 @@ async function doSearch() {
       searchToken
     );
   } catch (error) {
-    if (
-      searchToken !==
-      currentSearchToken
-    ) {
+    if (searchToken !== currentSearchToken) {
       return;
     }
 
@@ -2610,28 +2583,21 @@ async function doSearch() {
       normalizeText(query);
 
     const fallback =
-      OVERVIEW_JOBS.filter(
-        (job) => {
-          const text =
-            normalizeText(
-              [
-                job.title,
-                job.company,
-                job.city,
-                job.province,
-                ...(Array.isArray(
-                  job.categories
-                )
-                  ? job.categories
-                  : []),
-              ].join(" ")
-            );
+      OVERVIEW_JOBS.filter((job) => {
+        const text = normalizeText(
+          [
+            job.title,
+            job.company,
+            job.city,
+            job.province,
+            ...(Array.isArray(job.categories)
+              ? job.categories
+              : []),
+          ].join(" ")
+        );
 
-          return text.includes(
-            normalizedQuery
-          );
-        }
-      );
+        return text.includes(normalizedQuery);
+      });
 
     renderSearchResults(
       fallback,
