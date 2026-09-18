@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/api/jobvision?route=search"
+    },
+    {
+      "source": "/job-detail",
+      "destination": "/api/jobvision?route=job-detail"
+    }
+  ]
+}

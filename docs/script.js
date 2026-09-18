@@ -1,5 +1,5 @@
 const JOBVISION_API =
-  "https://late-recipe-0638.zankokarimy.workers.dev";
+  "https://jobvision-market-analysis.vercel.app";
 
 const PAGE_SIZE = 30;
 const MAX_LIVE_PAGES = 10;
