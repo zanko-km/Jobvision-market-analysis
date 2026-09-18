@@ -2,14 +2,13 @@ const JOBVISION_API =
   "https://late-recipe-0638.zankokarimy.workers.dev";
 
 const PAGE_SIZE = 30;
-
 const MAX_LIVE_PAGES = 10;
-
 const LIVE_PAGE_CONCURRENCY = 3;
 
-const SEARCH_TIMEOUT_MS = 30000;
+const SEARCH_TIMEOUT_MS = 17000;
 
 const DETAIL_CONCURRENCY = 8;
+const MAX_SKILL_ANALYSIS_JOBS = 60;
 
 const DATA_URL = "data/jobs.json";
 
@@ -24,16 +23,24 @@ const JOBS_PER_PAGE_OPTIONS = [
 const DEFAULT_JOBS_PER_PAGE = 5;
 
 let currentJobsPage = 1;
-let currentJobsPerPage = DEFAULT_JOBS_PER_PAGE;
+let currentJobsPerPage =
+  DEFAULT_JOBS_PER_PAGE;
 
 let OVERVIEW_JOBS = [];
 let currentSearchResults = [];
 let currentSearchToken = 0;
 
+let activeSearchController = null;
+
 const jobDetailCache = new Map();
 const charts = [];
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) =>
+  document.getElementById(id);
+
+/* =========================================================
+   GENERAL HELPERS
+========================================================= */
 
 function escapeHtml(value) {
   return String(value ?? "").replace(
@@ -58,10 +65,14 @@ function normalizeText(value) {
 function normalizeDigits(value) {
   return String(value ?? "")
     .replace(/[۰-۹]/g, (digit) =>
-      String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))
+      String(
+        "۰۱۲۳۴۵۶۷۸۹".indexOf(digit)
+      )
     )
     .replace(/[٠-٩]/g, (digit) =>
-      String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))
+      String(
+        "٠١٢٣٤٥٦٧٨٩".indexOf(digit)
+      )
     );
 }
 
@@ -70,10 +81,13 @@ function formatNumber(value, digits = 0) {
     return "-";
   }
 
-  return Number(value).toLocaleString("fa-IR", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+  return Number(value).toLocaleString(
+    "fa-IR",
+    {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }
+  );
 }
 
 function formatPercent(value) {
@@ -85,7 +99,9 @@ function formatPercent(value) {
 }
 
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) =>
+    setTimeout(resolve, ms)
+  );
 }
 
 function destroyCharts() {
@@ -95,71 +111,132 @@ function destroyCharts() {
     try {
       chart.destroy();
     } catch (error) {
-      console.warn("Failed to destroy chart:", error);
+      console.warn(
+        "Failed to destroy chart:",
+        error
+      );
     }
   }
 }
 
-function countValues(jobs, getter, limit = null) {
+/* =========================================================
+   VALUE / CATEGORY HELPERS
+========================================================= */
+
+function valueToLabels(value) {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) =>
+        valueToLabels(item)
+      )
+      .filter(Boolean);
+  }
+
+  const text = normalizeText(value);
+
+  return text ? [text] : [];
+}
+
+function countValues(
+  jobs,
+  getter,
+  limit = null
+) {
   const counts = new Map();
 
   for (const job of jobs) {
-    const value = normalizeText(getter(job));
+    const values = valueToLabels(
+      getter(job)
+    );
 
-    if (!value) {
-      continue;
+    for (const value of values) {
+      counts.set(
+        value,
+        (counts.get(value) || 0) + 1
+      );
     }
-
-    counts.set(value, (counts.get(value) || 0) + 1);
   }
 
   const entries = [...counts.entries()].sort(
     (a, b) => b[1] - a[1]
   );
 
-  return limit ? entries.slice(0, limit) : entries;
+  return limit
+    ? entries.slice(0, limit)
+    : entries;
 }
 
-function makeBarChart(container, title, entries) {
-  if (!container || !entries.length) {
+/* =========================================================
+   CHARTS
+========================================================= */
+
+function makeBarChart(
+  container,
+  title,
+  entries
+) {
+  if (
+    !container ||
+    !entries.length ||
+    typeof Chart === "undefined"
+  ) {
     return;
   }
 
-  const box = document.createElement("div");
+  const box =
+    document.createElement("div");
+
   box.className = "chart-box";
 
-  const heading = document.createElement("h3");
+  const heading =
+    document.createElement("h3");
+
   heading.textContent = title;
 
-  const canvas = document.createElement("canvas");
+  const canvas =
+    document.createElement("canvas");
 
   box.appendChild(heading);
   box.appendChild(canvas);
   container.appendChild(box);
 
-  const ctx = canvas.getContext("2d");
+  const ctx =
+    canvas.getContext("2d");
 
   const chart = new Chart(ctx, {
     type: "bar",
+
     data: {
-      labels: entries.map(([label]) => label),
+      labels: entries.map(
+        ([label]) => label
+      ),
+
       datasets: [
         {
           label: title,
-          data: entries.map(([, count]) => count),
+
+          data: entries.map(
+            ([, count]) => count
+          ),
+
           backgroundColor: "#ff4b4b",
         },
       ],
     },
+
     options: {
       indexAxis: "y",
+
       responsive: true,
+
       maintainAspectRatio: false,
+
       plugins: {
         legend: {
           display: false,
         },
       },
+
       scales: {
         x: {
           beginAtZero: true,
@@ -171,12 +248,91 @@ function makeBarChart(container, title, entries) {
   charts.push(chart);
 }
 
+function makeExistingCanvasChart(
+  canvasId,
+  label,
+  entries
+) {
+  const canvas = $(canvasId);
+
+  if (
+    !canvas ||
+    !entries.length ||
+    typeof Chart === "undefined"
+  ) {
+    return;
+  }
+
+  const existing =
+    Chart.getChart(canvas);
+
+  if (existing) {
+    existing.destroy();
+  }
+
+  const ctx =
+    canvas.getContext("2d");
+
+  const chart = new Chart(ctx, {
+    type: "bar",
+
+    data: {
+      labels: entries.map(
+        ([label]) => label
+      ),
+
+      datasets: [
+        {
+          label,
+
+          data: entries.map(
+            ([, count]) => count
+          ),
+
+          backgroundColor: "#ff4b4b",
+        },
+      ],
+    },
+
+    options: {
+      indexAxis: "y",
+
+      responsive: true,
+
+      maintainAspectRatio: false,
+
+      plugins: {
+        legend: {
+          display: false,
+        },
+      },
+
+      scales: {
+        x: {
+          beginAtZero: true,
+        },
+      },
+    },
+  });
+
+  charts.push(chart);
+}
+
+/* =========================================================
+   SALARY
+========================================================= */
+
 function parseSalary(value) {
-  if (value === null || value === undefined) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
     return null;
   }
 
-  let text = normalizeDigits(String(value));
+  let text = normalizeDigits(
+    String(value)
+  );
 
   text = text
     .replace(/,/g, "")
@@ -190,7 +346,8 @@ function parseSalary(value) {
     return null;
   }
 
-  const lower = text.toLowerCase();
+  const lower =
+    text.toLowerCase();
 
   if (
     lower.includes("توافقی") ||
@@ -244,7 +401,8 @@ function parseSalary(value) {
     return {
       min: values[0],
       max: values[1],
-      average: (values[0] + values[1]) / 2,
+      average:
+        (values[0] + values[1]) / 2,
     };
   }
 
@@ -257,7 +415,9 @@ function parseSalary(value) {
 
 function salaryAnalysis(jobs) {
   const salaries = jobs
-    .map((job) => parseSalary(job.salary))
+    .map((job) =>
+      parseSalary(job.salary)
+    )
     .filter(Boolean);
 
   if (!salaries.length) {
@@ -276,16 +436,21 @@ function salaryAnalysis(jobs) {
 
   const average =
     averages.reduce(
-      (sum, value) => sum + value,
+      (sum, value) =>
+        sum + value,
       0
     ) / averages.length;
 
   const min = Math.min(
-    ...salaries.map((item) => item.min)
+    ...salaries.map(
+      (item) => item.min
+    )
   );
 
   const max = Math.max(
-    ...salaries.map((item) => item.max)
+    ...salaries.map(
+      (item) => item.max
+    )
   );
 
   const ranges = [
@@ -336,6 +501,10 @@ function salaryAnalysis(jobs) {
   };
 }
 
+/* =========================================================
+   LIVE SEARCH
+========================================================= */
+
 async function fetchLivePage(
   keyword,
   page,
@@ -363,25 +532,48 @@ async function fetchLivePage(
       `Requesting JobVision page ${page}`
     );
 
-    const response = await fetch(`${JOBVISION_API}/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-      },
-      body: JSON.stringify({
-        jobCategoryUrlTitle: null,
-        keyword,
-        locationWrapper: null,
-        pageSize: PAGE_SIZE,
-        requestedPage: page,
-        sortBy: 1,
-        searchId: null,
-      }),
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    const response = await fetch(
+      `${JOBVISION_API}/`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          Accept:
+            "application/json",
+
+          "Cache-Control":
+            "no-cache",
+        },
+
+        body: JSON.stringify({
+          jobCategoryUrlTitle:
+            null,
+
+          keyword,
+
+          locationWrapper:
+            null,
+
+          pageSize:
+            PAGE_SIZE,
+
+          requestedPage:
+            page,
+
+          sortBy: 1,
+
+          searchId: null,
+        }),
+
+        signal:
+          controller.signal,
+
+        cache: "no-store",
+      }
+    );
 
     if (!response.ok) {
       throw new Error(
@@ -404,9 +596,7 @@ async function fetchLivePage(
       error?.name ===
       "AbortError"
     ) {
-      throw new Error(
-        `Search page ${page} timed out`
-      );
+      throw error;
     }
 
     throw error;
@@ -419,7 +609,6 @@ async function fetchLivePage(
     );
   }
 }
-
 
 function rawJobToRecord(job) {
   return {
@@ -484,7 +673,6 @@ function rawJobToRecord(job) {
   };
 }
 
-
 function getJobId(job) {
   return (
     job?.id ??
@@ -494,13 +682,13 @@ function getJobId(job) {
   );
 }
 
-
 function dedupeJobs(jobs) {
   const result = [];
   const seen = new Set();
 
   for (const job of jobs) {
-    const id = getJobId(job);
+    const id =
+      getJobId(job);
 
     if (id == null) {
       continue;
@@ -519,6 +707,31 @@ function dedupeJobs(jobs) {
   return result;
 }
 
+function extractJobsFromPage(
+  data
+) {
+  if (
+    Array.isArray(
+      data?.jobPosts
+    )
+  ) {
+    return data.jobPosts;
+  }
+
+  if (
+    Array.isArray(data?.jobs)
+  ) {
+    return data.jobs;
+  }
+
+  if (
+    Array.isArray(data?.items)
+  ) {
+    return data.items;
+  }
+
+  return [];
+}
 
 async function fetchPageBatch(
   keyword,
@@ -579,7 +792,6 @@ async function fetchPageBatch(
   };
 }
 
-
 async function liveSearch(
   keyword,
   onProgress,
@@ -607,29 +819,16 @@ async function liveSearch(
   const total =
     Number(
       firstPage.jobPostCount ??
-      firstPage.totalCount ??
-      firstPage.count ??
-      0
+        firstPage.totalCount ??
+        firstPage.count ??
+        0
     );
-
-  const firstPageJobs =
-    Array.isArray(
-      firstPage.jobPosts
-    )
-      ? firstPage.jobPosts
-      : Array.isArray(
-          firstPage.jobs
-        )
-      ? firstPage.jobs
-      : Array.isArray(
-          firstPage.items
-        )
-      ? firstPage.items
-      : [];
 
   let jobs =
     dedupeJobs(
-      firstPageJobs.map(
+      extractJobsFromPage(
+        firstPage
+      ).map(
         rawJobToRecord
       )
     );
@@ -638,8 +837,7 @@ async function liveSearch(
     Math.max(
       1,
       Math.ceil(
-        total /
-          PAGE_SIZE
+        total / PAGE_SIZE
       )
     );
 
@@ -655,6 +853,7 @@ async function liveSearch(
     loadedPages: 1,
     totalPages:
       pagesToLoad,
+
     complete:
       pagesToLoad === 1,
   });
@@ -679,7 +878,9 @@ async function liveSearch(
     start +=
       LIVE_PAGE_CONCURRENCY
   ) {
-    if (signal?.aborted) {
+    if (
+      signal?.aborted
+    ) {
       throw new DOMException(
         "Search cancelled",
         "AbortError"
@@ -710,23 +911,10 @@ async function liveSearch(
       const item of
         batch.successful
     ) {
-      const pageJobs =
-        Array.isArray(
-          item.data.jobPosts
-        )
-          ? item.data.jobPosts
-          : Array.isArray(
-              item.data.jobs
-            )
-          ? item.data.jobs
-          : Array.isArray(
-              item.data.items
-            )
-          ? item.data.items
-          : [];
-
       jobs.push(
-        ...pageJobs.map(
+        ...extractJobsFromPage(
+          item.data
+        ).map(
           rawJobToRecord
         )
       );
@@ -756,11 +944,13 @@ async function liveSearch(
       loadedPages,
       totalPages:
         pagesToLoad,
+
       failedPages:
         batch.failed.map(
           (item) =>
             item.page
         ),
+
       complete:
         start +
           LIVE_PAGE_CONCURRENCY >
@@ -777,16 +967,23 @@ async function liveSearch(
   };
 }
 
+/* =========================================================
+   SKILL ANALYSIS
+========================================================= */
+
 function normalizeSkillName(name) {
   return normalizeText(name);
 }
 
 function normalizeSkillKey(name) {
-  return normalizeSkillName(name).toLowerCase();
+  return normalizeSkillName(
+    name
+  ).toLowerCase();
 }
 
 async function fetchJobDetail(
-  jobId
+  jobId,
+  signal
 ) {
   if (!jobId) {
     return null;
@@ -808,63 +1005,52 @@ async function fetchJobDetail(
       jobId
     )}`;
 
-  let lastError = null;
+  try {
+    const response =
+      await fetch(url, {
+        method: "GET",
+        cache: "force-cache",
+        signal,
+      });
 
-  for (
-    let attempt = 1;
-    attempt <= 2;
-    attempt++
-  ) {
-    try {
-      const response =
-        await fetch(url, {
-          method: "GET",
-          cache: "force-cache",
-        });
-
-      if (!response.ok) {
-        throw new Error(
-          `Job detail returned HTTP ${response.status}`
-        );
-      }
-
-      const data =
-        await response.json();
-
-      jobDetailCache.set(
-        key,
-        data
+    if (!response.ok) {
+      throw new Error(
+        `Job detail returned HTTP ${response.status}`
       );
-
-      return data;
-    } catch (error) {
-      lastError = error;
-
-      if (attempt < 2) {
-        await new Promise(
-          (resolve) =>
-            setTimeout(
-              resolve,
-              500
-            )
-        );
-      }
     }
+
+    const data =
+      await response.json();
+
+    jobDetailCache.set(
+      key,
+      data
+    );
+
+    return data;
+  } catch (error) {
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
+      throw error;
+    }
+
+    console.warn(
+      `Job detail failed for ${jobId}:`,
+      error
+    );
+
+    return null;
   }
-
-  console.warn(
-    `Job detail failed for ${jobId}:`,
-    lastError
-  );
-
-  return null;
 }
 
 function updateSkillLoadingProgress(
   current,
   total
 ) {
-  const element = $("skills-loading");
+  const element =
+    $("skills-loading");
 
   if (!element) {
     return;
@@ -873,10 +1059,14 @@ function updateSkillLoadingProgress(
   element.textContent =
     `در حال تحلیل مهارت‌های ${formatNumber(
       current
-    )} از ${formatNumber(total)} آگهی...`;
+    )} از ${formatNumber(
+      total
+    )} آگهی...`;
 }
 
-function showSkillLoading(total) {
+function showSkillLoading(
+  total
+) {
   const container =
     $("skills-analysis");
 
@@ -900,33 +1090,39 @@ function showSkillLoading(total) {
 
 async function fetchJobDetails(
   jobIds,
-  searchToken
+  searchToken,
+  signal
 ) {
-  const uniqueIds =
-    [
-      ...new Set(
-        jobIds
-          .filter(Boolean)
-          .map(String)
-      ),
-    ];
+  const uniqueIds = [
+    ...new Set(
+      jobIds
+        .filter(Boolean)
+        .map(String)
+    ),
+  ];
 
-  const results = new Map();
+  const results =
+    new Map();
 
   let completed = 0;
+  let cursor = 0;
 
   updateSkillLoadingProgress(
     0,
     uniqueIds.length
   );
 
-  let cursor = 0;
-
   async function worker() {
     while (true) {
       if (
         searchToken !==
         currentSearchToken
+      ) {
+        return;
+      }
+
+      if (
+        signal?.aborted
       ) {
         return;
       }
@@ -944,15 +1140,30 @@ async function fetchJobDetails(
       const id =
         uniqueIds[index];
 
-      const data =
-        await fetchJobDetail(
-          id
-        );
+      try {
+        const data =
+          await fetchJobDetail(
+            id,
+            signal
+          );
 
-      if (data) {
-        results.set(
-          id,
-          data
+        if (data) {
+          results.set(
+            id,
+            data
+          );
+        }
+      } catch (error) {
+        if (
+          error?.name ===
+          "AbortError"
+        ) {
+          return;
+        }
+
+        console.warn(
+          `Skill detail failed for ${id}:`,
+          error
         );
       }
 
@@ -984,24 +1195,36 @@ async function fetchJobDetails(
   return results;
 }
 
-function aggregateSkills(details) {
-  const skillCounts = new Map();
+function aggregateSkills(
+  details
+) {
+  const skillCounts =
+    new Map();
+
   let analyzedJobs = 0;
 
-  for (const detail of details) {
+  for (
+    const detail of details
+  ) {
     if (
       !detail ||
       detail.failed ||
-      !Array.isArray(detail.skills)
+      !Array.isArray(
+        detail.skills
+      )
     ) {
       continue;
     }
 
     analyzedJobs++;
 
-    const skillsInJob = new Set();
+    const skillsInJob =
+      new Set();
 
-    for (const skill of detail.skills) {
+    for (
+      const skill of
+        detail.skills
+    ) {
       const name =
         normalizeSkillName(
           skill?.name
@@ -1012,22 +1235,33 @@ function aggregateSkills(details) {
       }
 
       const key =
-        normalizeSkillKey(name);
+        normalizeSkillKey(
+          name
+        );
 
-      if (skillsInJob.has(key)) {
+      if (
+        skillsInJob.has(key)
+      ) {
         continue;
       }
 
       skillsInJob.add(key);
 
-      if (!skillCounts.has(key)) {
-        skillCounts.set(key, {
-          name,
-          count: 0,
-        });
+      if (
+        !skillCounts.has(key)
+      ) {
+        skillCounts.set(
+          key,
+          {
+            name,
+            count: 0,
+          }
+        );
       }
 
-      skillCounts.get(key).count++;
+      skillCounts.get(
+        key
+      ).count++;
     }
   }
 
@@ -1036,14 +1270,23 @@ function aggregateSkills(details) {
   ]
     .map((skill) => ({
       ...skill,
+
       percentage:
         analyzedJobs > 0
-          ? (skill.count / analyzedJobs) * 100
+          ? (skill.count /
+              analyzedJobs) *
+            100
           : 0,
     }))
     .sort((a, b) => {
-      if (b.count !== a.count) {
-        return b.count - a.count;
+      if (
+        b.count !==
+        a.count
+      ) {
+        return (
+          b.count -
+          a.count
+        );
       }
 
       return a.name.localeCompare(
@@ -1073,12 +1316,15 @@ function renderSkillAnalysis(
     analyzedJobs,
   } = analysis;
 
-  if (analyzedJobs === 0) {
+  if (
+    analyzedJobs === 0
+  ) {
     container.innerHTML = `
       <div class="skills-empty">
         اطلاعات مهارت برای این جستجو قابل استخراج نبود.
       </div>
     `;
+
     return;
   }
 
@@ -1088,50 +1334,55 @@ function renderSkillAnalysis(
         در آگهی‌های بررسی‌شده مهارتی پیدا نشد.
       </div>
     `;
+
     return;
   }
 
   const topSkills =
     skills.slice(0, 20);
 
-  const rows = topSkills
-    .map((skill) => {
-      const percentage =
-        skill.percentage;
+  const rows =
+    topSkills
+      .map((skill) => {
+        const percentage =
+          skill.percentage;
 
-      return `
-        <div class="skill-row">
-          <div class="skill-row-header">
-            <span class="skill-name">
-              ${escapeHtml(skill.name)}
-            </span>
+        return `
+          <div class="skill-row">
+            <div class="skill-row-header">
+              <span class="skill-name">
+                ${escapeHtml(
+                  skill.name
+                )}
+              </span>
 
-            <span class="skill-percentage">
-              ${formatNumber(
-                skill.count
-              )} آگهی
-              (${formatPercent(
-                percentage
-              )})
-            </span>
+              <span class="skill-percentage">
+                ${formatNumber(
+                  skill.count
+                )} آگهی
+                (${formatPercent(
+                  percentage
+                )})
+              </span>
+            </div>
+
+            <div class="skill-bar-background">
+              <div
+                class="skill-bar"
+                style="width: ${Math.min(
+                  percentage,
+                  100
+                )}%"
+              ></div>
+            </div>
           </div>
-
-          <div class="skill-bar-background">
-            <div
-              class="skill-bar"
-              style="width: ${Math.min(
-                percentage,
-                100
-              )}%"
-            ></div>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
+        `;
+      })
+      .join("");
 
   const analyzedText =
-    analyzedJobs === totalJobs
+    analyzedJobs ===
+    totalJobs
       ? `${formatNumber(
           analyzedJobs
         )} آگهی`
@@ -1155,12 +1406,18 @@ function renderSkillAnalysis(
 
 async function analyzeSearchSkills(
   jobs,
-  searchToken
+  searchToken,
+  signal
 ) {
   const validJobs =
-    jobs.filter(
-      (job) => job?.id
-    );
+    jobs
+      .filter(
+        (job) => job?.id
+      )
+      .slice(
+        0,
+        MAX_SKILL_ANALYSIS_JOBS
+      );
 
   if (!validJobs.length) {
     renderSkillAnalysis(
@@ -1170,6 +1427,7 @@ async function analyzeSearchSkills(
       },
       0
     );
+
     return;
   }
 
@@ -1185,7 +1443,8 @@ async function analyzeSearchSkills(
   const details =
     await fetchJobDetails(
       jobIds,
-      searchToken
+      searchToken,
+      signal
     );
 
   if (
@@ -1196,13 +1455,19 @@ async function analyzeSearchSkills(
   }
 
   const analysis =
-    aggregateSkills(details);
+    aggregateSkills(
+      details.values()
+    );
 
   renderSkillAnalysis(
     analysis,
     validJobs.length
   );
 }
+
+/* =========================================================
+   SEARCH METRICS
+========================================================= */
 
 function searchMetricsHtml(
   jobs,
@@ -1242,8 +1507,11 @@ function searchMetricsHtml(
     <div class="metrics">
       <div class="metric-card">
         <div class="value">
-          ${formatNumber(total)}
+          ${formatNumber(
+            total
+          )}
         </div>
+
         <div class="label">
           💼 کل آگهی‌های پیدا شده
         </div>
@@ -1251,8 +1519,11 @@ function searchMetricsHtml(
 
       <div class="metric-card">
         <div class="value">
-          ${formatNumber(companies)}
+          ${formatNumber(
+            companies
+          )}
         </div>
+
         <div class="label">
           🏢 شرکت‌ها
         </div>
@@ -1260,8 +1531,11 @@ function searchMetricsHtml(
 
       <div class="metric-card">
         <div class="value">
-          ${formatNumber(provinces)}
+          ${formatNumber(
+            provinces
+          )}
         </div>
+
         <div class="label">
           📍 استان‌ها
         </div>
@@ -1269,8 +1543,11 @@ function searchMetricsHtml(
 
       <div class="metric-card">
         <div class="value">
-          ${formatNumber(remote)}
+          ${formatNumber(
+            remote
+          )}
         </div>
+
         <div class="label">
           🌐 دورکاری
         </div>
@@ -1279,14 +1556,18 @@ function searchMetricsHtml(
   `;
 }
 
-function salaryAnalysisHtml(jobs) {
+function salaryAnalysisHtml(
+  jobs
+) {
   const analysis =
     salaryAnalysis(jobs);
 
   const salaries = jobs
     .map((job) => {
       const parsed =
-        parseSalary(job.salary);
+        parseSalary(
+          job.salary
+        );
 
       if (!parsed) {
         return null;
@@ -1302,16 +1583,20 @@ function salaryAnalysisHtml(jobs) {
   const minSalaryJob =
     salaries.find(
       (item) =>
-        item.min === analysis.min
+        item.min ===
+        analysis.min
     );
 
   const maxSalaryJob =
     salaries.find(
       (item) =>
-        item.max === analysis.max
+        item.max ===
+        analysis.max
     );
 
-  if (analysis.count === 0) {
+  if (
+    analysis.count === 0
+  ) {
     return `
       <div class="info-box">
         💰 برای آگهی‌های این جستجو اطلاعات قابل استفاده‌ای از حقوق پیدا نشد.
@@ -1319,28 +1604,16 @@ function salaryAnalysisHtml(jobs) {
     `;
   }
 
-  const minJobLink =
-    minSalaryJob?.job?.id
-      ? `
-        <a
-          href="https://jobvision.ir/jobs/${encodeURIComponent(
-            minSalaryJob.job.id
-          )}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="job-link"
-        >
-          مشاهده آگهی →
-        </a>
-      `
-      : "";
+  const buildJobLink =
+    (job) => {
+      if (!job?.id) {
+        return "";
+      }
 
-  const maxJobLink =
-    maxSalaryJob?.job?.id
-      ? `
+      return `
         <a
           href="https://jobvision.ir/jobs/${encodeURIComponent(
-            maxSalaryJob.job.id
+            job.id
           )}?utm_source=github&utm_medium=jobvision_market_analysis&utm_campaign=zanko"
           target="_blank"
           rel="noopener noreferrer"
@@ -1348,8 +1621,8 @@ function salaryAnalysisHtml(jobs) {
         >
           مشاهده آگهی →
         </a>
-      `
-      : "";
+      `;
+    };
 
   return `
     <div class="section-title">
@@ -1364,6 +1637,7 @@ function salaryAnalysisHtml(jobs) {
             1
           )}
         </div>
+
         <div class="label">
           میانگین حقوق (میلیون تومان)
         </div>
@@ -1376,10 +1650,14 @@ function salaryAnalysisHtml(jobs) {
             1
           )}
         </div>
+
         <div class="label">
           کمترین مقدار ثبت‌شده
         </div>
-        ${minJobLink}
+
+        ${buildJobLink(
+          minSalaryJob?.job
+        )}
       </div>
 
       <div class="metric-card">
@@ -1389,10 +1667,14 @@ function salaryAnalysisHtml(jobs) {
             1
           )}
         </div>
+
         <div class="label">
           بیشترین مقدار ثبت‌شده
         </div>
-        ${maxJobLink}
+
+        ${buildJobLink(
+          maxSalaryJob?.job
+        )}
       </div>
 
       <div class="metric-card">
@@ -1401,6 +1683,7 @@ function salaryAnalysisHtml(jobs) {
             analysis.count
           )}
         </div>
+
         <div class="label">
           آگهی دارای اطلاعات حقوق
         </div>
@@ -1414,7 +1697,13 @@ function salaryAnalysisHtml(jobs) {
   `;
 }
 
-function renderSearchCharts(jobs) {
+/* =========================================================
+   SEARCH CHARTS
+========================================================= */
+
+function renderSearchCharts(
+  jobs
+) {
   const container =
     $("search-charts");
 
@@ -1429,7 +1718,8 @@ function renderSearchCharts(jobs) {
     "🏢 برترین شرکت‌ها",
     countValues(
       jobs,
-      (job) => job.company,
+      (job) =>
+        job.company,
       10
     )
   );
@@ -1505,7 +1795,9 @@ function renderSearchCharts(jobs) {
   );
 }
 
-function renderSalaryChart(jobs) {
+function renderSalaryChart(
+  jobs
+) {
   const container =
     $("salary-charts");
 
@@ -1528,7 +1820,13 @@ function renderSalaryChart(jobs) {
   );
 }
 
-function renderSearchTable(jobs) {
+/* =========================================================
+   SEARCH TABLE
+========================================================= */
+
+function renderSearchTable(
+  jobs
+) {
   const container =
     $("search-positions");
 
@@ -1556,7 +1854,7 @@ function renderSearchTable(jobs) {
   const totalPages =
     Math.ceil(
       totalJobs /
-      currentJobsPerPage
+        currentJobsPerPage
     );
 
   if (
@@ -1652,7 +1950,9 @@ function renderSearchTable(jobs) {
 
   const pageButtons = [];
 
-  function addPageButton(page) {
+  function addPageButton(
+    page
+  ) {
     pageButtons.push(`
       <button
         type="button"
@@ -1676,7 +1976,9 @@ function renderSearchTable(jobs) {
     `);
   }
 
-  if (totalPages <= 7) {
+  if (
+    totalPages <= 7
+  ) {
     for (
       let page = 1;
       page <= totalPages;
@@ -1687,7 +1989,9 @@ function renderSearchTable(jobs) {
   } else {
     addPageButton(1);
 
-    if (currentJobsPage > 4) {
+    if (
+      currentJobsPage > 4
+    ) {
       addEllipsis();
     }
 
@@ -1727,6 +2031,7 @@ function renderSearchTable(jobs) {
     totalPages > 1
       ? `
         <div class="pagination">
+
           <button
             type="button"
             class="pagination-button"
@@ -1734,7 +2039,8 @@ function renderSearchTable(jobs) {
               currentJobsPage - 1
             }"
             ${
-              currentJobsPage === 1
+              currentJobsPage ===
+              1
                 ? "disabled"
                 : ""
             }
@@ -1742,7 +2048,9 @@ function renderSearchTable(jobs) {
             قبلی
           </button>
 
-          ${pageButtons.join("")}
+          ${pageButtons.join(
+            ""
+          )}
 
           <button
             type="button"
@@ -1751,13 +2059,15 @@ function renderSearchTable(jobs) {
               currentJobsPage + 1
             }"
             ${
-              currentJobsPage === totalPages
+              currentJobsPage ===
+              totalPages
                 ? "disabled"
                 : ""
             }
           >
             بعدی
           </button>
+
         </div>
       `
       : "";
@@ -1777,6 +2087,7 @@ function renderSearchTable(jobs) {
     </div>
 
     <div class="jobs-toolbar">
+
       <div class="jobs-count">
         نمایش ${formatNumber(
           startDisplay
@@ -1788,11 +2099,13 @@ function renderSearchTable(jobs) {
       </div>
 
       <div class="jobs-per-page">
+
         <label for="jobs-per-page">
           تعداد در هر صفحه:
         </label>
 
         <select id="jobs-per-page">
+
           ${JOBS_PER_PAGE_OPTIONS
             .map(
               (size) => `
@@ -1810,12 +2123,16 @@ function renderSearchTable(jobs) {
               `
             )
             .join("")}
+
         </select>
+
       </div>
     </div>
 
     <div class="results-table table-wrapper">
+
       <table>
+
         <thead>
           <tr>
             <th>عنوان</th>
@@ -1831,7 +2148,9 @@ function renderSearchTable(jobs) {
         <tbody>
           ${rows}
         </tbody>
+
       </table>
+
     </div>
 
     ${paginationHtml}
@@ -1853,10 +2172,14 @@ function renderSearchTable(jobs) {
             );
 
           if (
-            !Number.isFinite(page) ||
+            !Number.isFinite(
+              page
+            ) ||
             page < 1 ||
-            page > totalPages ||
-            page === currentJobsPage
+            page >
+              totalPages ||
+            page ===
+              currentJobsPage
           ) {
             return;
           }
@@ -1868,10 +2191,14 @@ function renderSearchTable(jobs) {
             currentSearchResults
           );
 
-          container.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
+          container.scrollIntoView(
+            {
+              behavior:
+                "smooth",
+              block:
+                "start",
+            }
+          );
         }
       );
     }
@@ -1898,6 +2225,10 @@ function renderSearchTable(jobs) {
     );
   }
 }
+
+/* =========================================================
+   SEARCH RESULTS
+========================================================= */
 
 function renderSearchResults(
   jobs,
@@ -1987,13 +2318,17 @@ function renderSearchResults(
 
   container.innerHTML = `
     <div class="info-box">
+
       ${formatNumber(
         total
       )} آگهی مطابق «${escapeHtml(
         query
       )}» پیدا شد
+
       ${shownNote}
+
       ${fallbackNote}
+
     </div>
 
     ${searchMetricsHtml(
@@ -2017,17 +2352,31 @@ function renderSearchResults(
     <div id="search-positions"></div>
   `;
 
-  renderSearchCharts(jobs);
-  renderSalaryChart(jobs);
+  renderSearchCharts(
+    jobs
+  );
+
+  renderSalaryChart(
+    jobs
+  );
 
   currentJobsPage = 1;
+
   currentJobsPerPage =
     DEFAULT_JOBS_PER_PAGE;
 
-  renderSearchTable(jobs);
+  renderSearchTable(
+    jobs
+  );
 }
 
-function renderOverviewMetrics(jobs) {
+/* =========================================================
+   OVERVIEW
+========================================================= */
+
+function renderOverviewMetrics(
+  jobs
+) {
   const container =
     $("metrics");
 
@@ -2072,6 +2421,7 @@ function renderOverviewMetrics(jobs) {
           jobs.length
         )}
       </div>
+
       <div class="label">
         💼 کل آگهی‌ها
       </div>
@@ -2083,6 +2433,7 @@ function renderOverviewMetrics(jobs) {
           companies
         )}
       </div>
+
       <div class="label">
         🏢 کارفرمایان
       </div>
@@ -2094,6 +2445,7 @@ function renderOverviewMetrics(jobs) {
           provinces
         )}
       </div>
+
       <div class="label">
         📍 استان‌ها
       </div>
@@ -2105,6 +2457,7 @@ function renderOverviewMetrics(jobs) {
           remote
         )}
       </div>
+
       <div class="label">
         🌐 دورکاری
       </div>
@@ -2112,7 +2465,9 @@ function renderOverviewMetrics(jobs) {
   `;
 }
 
-function renderOverviewCarousel(jobs) {
+function renderOverviewCarousel(
+  jobs
+) {
   const container =
     $("job-carousel");
 
@@ -2124,10 +2479,12 @@ function renderOverviewCarousel(jobs) {
     [...jobs].sort(
       (a, b) =>
         new Date(
-          b.activation_date || 0
+          b.activation_date ||
+            0
         ) -
         new Date(
-          a.activation_date || 0
+          a.activation_date ||
+            0
         )
     );
 
@@ -2165,17 +2522,18 @@ function renderOverviewCarousel(jobs) {
 
         return `
           <div class="job-card">
+
             <div class="job-title">
               ${escapeHtml(
                 job.title ||
-                "بدون عنوان"
+                  "بدون عنوان"
               )}
             </div>
 
             <div class="job-company">
               🏢 ${escapeHtml(
                 job.company ||
-                "نامشخص"
+                  "نامشخص"
               )}
             </div>
 
@@ -2190,13 +2548,16 @@ function renderOverviewCarousel(jobs) {
                 `
               )
               .join("")}
+
           </div>
         `;
       })
       .join("");
 }
 
-function renderOverviewCharts(jobs) {
+function renderOverviewCharts(
+  jobs
+) {
   const chartIds = [
     "company-chart",
     "location-chart",
@@ -2204,18 +2565,27 @@ function renderOverviewCharts(jobs) {
     "work-type-chart",
   ];
 
-  for (const id of chartIds) {
+  for (
+    const id of chartIds
+  ) {
     const canvas = $(id);
 
     if (!canvas) {
       continue;
     }
 
-    const existing =
-      Chart.getChart(canvas);
+    if (
+      typeof Chart !==
+      "undefined"
+    ) {
+      const existing =
+        Chart.getChart(
+          canvas
+        );
 
-    if (existing) {
-      existing.destroy();
+      if (existing) {
+        existing.destroy();
+      }
     }
   }
 
@@ -2224,7 +2594,8 @@ function renderOverviewCharts(jobs) {
     "تعداد آگهی",
     countValues(
       jobs,
-      (job) => job.company,
+      (job) =>
+        job.company,
       10
     )
   );
@@ -2262,67 +2633,9 @@ function renderOverviewCharts(jobs) {
   );
 }
 
-function makeExistingCanvasChart(
-  canvasId,
-  label,
-  entries
+function renderOverview(
+  jobs
 ) {
-  const canvas = $(canvasId);
-
-  if (
-    !canvas ||
-    !entries.length
-  ) {
-    return;
-  }
-
-  const ctx =
-    canvas.getContext("2d");
-
-  const chart =
-    new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels:
-          entries.map(
-            ([label]) =>
-              label
-          ),
-        datasets: [
-          {
-            label,
-            data:
-              entries.map(
-                ([, count]) =>
-                  count
-              ),
-            backgroundColor:
-              "#ff4b4b",
-          },
-        ],
-      },
-      options: {
-        indexAxis: "y",
-        responsive: true,
-        maintainAspectRatio:
-          false,
-        plugins: {
-          legend: {
-            display: false,
-          },
-        },
-        scales: {
-          x: {
-            beginAtZero: true,
-          },
-        },
-      },
-    });
-
-  charts.push(chart);
-}
-
-function renderOverview(jobs) {
   destroyCharts();
 
   const overviewSection =
@@ -2343,10 +2656,22 @@ function renderOverview(jobs) {
     );
   }
 
-  renderOverviewMetrics(jobs);
-  renderOverviewCarousel(jobs);
-  renderOverviewCharts(jobs);
+  renderOverviewMetrics(
+    jobs
+  );
+
+  renderOverviewCarousel(
+    jobs
+  );
+
+  renderOverviewCharts(
+    jobs
+  );
 }
+
+/* =========================================================
+   OVERVIEW DATA
+========================================================= */
 
 function setUpdatedAt(
   generatedAt,
@@ -2401,7 +2726,8 @@ async function loadOverviewData() {
       await fetch(
         DATA_URL,
         {
-          cache: "no-store",
+          cache:
+            "no-store",
         }
       );
 
@@ -2432,7 +2758,9 @@ async function loadOverviewData() {
         jobs.length
     );
 
-    renderOverview(jobs);
+    renderOverview(
+      jobs
+    );
 
     if (loading) {
       loading.remove();
@@ -2450,30 +2778,57 @@ async function loadOverviewData() {
   }
 }
 
-function showSearchLoading(keyword) {
-  const overview = $("overview-section");
-  const search = $("search-section");
+/* =========================================================
+   SEARCH LOADING
+========================================================= */
+
+function showSearchLoading(
+  keyword
+) {
+  const overview =
+    $("overview-section");
+
+  const search =
+    $("search-section");
 
   if (overview) {
-    overview.classList.add("hidden");
+    overview.classList.add(
+      "hidden"
+    );
   }
 
   if (search) {
-    search.classList.remove("hidden");
+    search.classList.remove(
+      "hidden"
+    );
   }
 
-  const results = $("search-results");
+  const results =
+    $("search-results");
 
   if (results) {
     results.innerHTML = `
       <div class="info-box">
+
         🔍 در حال جستجوی زنده در JobVision برای
-        «${escapeHtml(keyword)}»...
+        «${escapeHtml(
+          keyword
+        )}»...
+
+        <br><br>
+
+        <span
+          id="searchLoadingStatus"
+        >
+          در حال اتصال به JobVision...
+        </span>
+
       </div>
     `;
   }
 
-  const skills = $("skills-analysis");
+  const skills =
+    $("skills-analysis");
 
   if (skills) {
     skills.innerHTML = `
@@ -2484,73 +2839,162 @@ function showSearchLoading(keyword) {
   }
 }
 
+function updateSearchLoadingStatus(
+  message
+) {
+  const status =
+    $("searchLoadingStatus");
+
+  if (status) {
+    status.textContent =
+      message;
+  }
+}
+
+/* =========================================================
+   MAIN SEARCH
+========================================================= */
+
 async function doSearch() {
   const input =
-    document.querySelector("#search-input") ||
-    document.querySelector("#searchInput");
+    document.querySelector(
+      "#search-input"
+    ) ||
+    document.querySelector(
+      "#searchInput"
+    );
 
-  const query = input?.value?.trim();
+  const query =
+    input?.value?.trim();
 
   if (!query) {
     return;
   }
 
-  const searchToken = ++currentSearchToken;
+  /*
+   * Abort previous search completely.
+   */
+  if (
+    activeSearchController
+  ) {
+    activeSearchController.abort();
+  }
 
-  showSearchLoading(query);
+  const controller =
+    new AbortController();
+
+  activeSearchController =
+    controller;
+
+  const searchToken =
+    ++currentSearchToken;
+
+  showSearchLoading(
+    query
+  );
 
   try {
-    const result = await liveSearch(
-      query,
-      ({
-        jobs,
-        total,
-        loadedPages,
-        totalPages,
-        complete,
-      }) => {
-        if (searchToken !== currentSearchToken) {
-          return;
-        }
+    const result =
+      await liveSearch(
+        query,
 
-        renderSearchResults(
+        ({
           jobs,
-          query,
-          total
-        );
-
-        const status =
-          document.querySelector("#searchLoadingStatus");
-
-        if (status) {
-          if (complete) {
-            status.textContent =
-              `جستجو کامل شد — ${jobs.length.toLocaleString("fa-IR")} آگهی`;
-          } else {
-            status.textContent =
-              `در حال دریافت نتایج... صفحه ${loadedPages} از ${totalPages}`;
+          total,
+          loadedPages,
+          totalPages,
+          complete,
+          failedPages,
+        }) => {
+          if (
+            searchToken !==
+            currentSearchToken
+          ) {
+            return;
           }
-        }
-      },
-      null
-    );
 
-    if (searchToken !== currentSearchToken) {
+          /*
+           * IMPORTANT:
+           * Do NOT render the entire search UI
+           * on every page.
+           *
+           * Only update the loading text.
+           */
+          if (complete) {
+            updateSearchLoadingStatus(
+              `جستجو کامل شد — ${formatNumber(
+                jobs.length
+              )} آگهی دریافت شد`
+            );
+          } else {
+            let message =
+              `در حال دریافت نتایج... صفحه ${formatNumber(
+                loadedPages
+              )} از ${formatNumber(
+                totalPages
+              )}`;
+
+            if (
+              failedPages?.length
+            ) {
+              message +=
+                ` — ${failedPages.length} صفحه ناموفق`;
+            }
+
+            updateSearchLoadingStatus(
+              message
+            );
+          }
+        },
+
+        controller.signal
+      );
+
+    if (
+      searchToken !==
+      currentSearchToken
+    ) {
       return;
     }
 
+    /*
+     * Render exactly once after search finishes.
+     */
     renderSearchResults(
       result.jobs,
       query,
       result.total
     );
 
+    updateSearchLoadingStatus(
+      `جستجو کامل شد — ${formatNumber(
+        result.jobs.length
+      )} آگهی بارگذاری شد`
+    );
+
+    /*
+     * Skill analysis happens after
+     * search results are already visible.
+     *
+     * It is limited to MAX_SKILL_ANALYSIS_JOBS.
+     */
     await analyzeSearchSkills(
       result.jobs,
-      searchToken
+      searchToken,
+      controller.signal
     );
   } catch (error) {
-    if (searchToken !== currentSearchToken) {
+    if (
+      searchToken !==
+      currentSearchToken
+    ) {
+      return;
+    }
+
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
       return;
     }
 
@@ -2559,25 +3003,36 @@ async function doSearch() {
       error
     );
 
+    updateSearchLoadingStatus(
+      "جستجوی زنده ناموفق بود؛ در حال استفاده از داده‌های ذخیره‌شده..."
+    );
+
     const normalizedQuery =
       normalizeText(query);
 
     const fallback =
-      OVERVIEW_JOBS.filter((job) => {
-        const text = normalizeText(
-          [
-            job.title,
-            job.company,
-            job.city,
-            job.province,
-            ...(Array.isArray(job.categories)
-              ? job.categories
-              : []),
-          ].join(" ")
-        );
+      OVERVIEW_JOBS.filter(
+        (job) => {
+          const text =
+            normalizeText(
+              [
+                job.title,
+                job.company,
+                job.city,
+                job.province,
+                ...(Array.isArray(
+                  job.categories
+                )
+                  ? job.categories
+                  : []),
+              ].join(" ")
+            );
 
-        return text.includes(normalizedQuery);
-      });
+          return text.includes(
+            normalizedQuery
+          );
+        }
+      );
 
     renderSearchResults(
       fallback,
@@ -2585,13 +3040,34 @@ async function doSearch() {
       fallback.length,
       true
     );
+  } finally {
+    if (
+      activeSearchController ===
+      controller
+    ) {
+      activeSearchController =
+        null;
+    }
   }
 }
+
+/* =========================================================
+   BACK
+========================================================= */
 
 function goBackToOverview() {
   ++currentSearchToken;
 
-  currentSearchResults = [];
+  if (
+    activeSearchController
+  ) {
+    activeSearchController.abort();
+    activeSearchController =
+      null;
+  }
+
+  currentSearchResults =
+    [];
 
   const input =
     $("search-input");
@@ -2614,6 +3090,10 @@ function goBackToOverview() {
   );
 }
 
+/* =========================================================
+   DOM READY
+========================================================= */
+
 document.addEventListener(
   "DOMContentLoaded",
   () => {
@@ -2634,6 +3114,7 @@ document.addEventListener(
         "submit",
         async (event) => {
           event.preventDefault();
+
           await doSearch();
         }
       );
