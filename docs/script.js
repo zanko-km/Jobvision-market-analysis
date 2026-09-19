@@ -355,37 +355,82 @@ function parseSalary(value) {
     return null;
   }
 
-  const numbers = [
+  const matches = [
     ...text.matchAll(
-      /(\d+(?:\.\d+)?)\s*(هزار|میلیون|میلیارد)?/gi
+      /(\d+(?:\.\d+)?)\s*(میلیارد|میلیون|هزار)?/gi
     ),
-  ].map((match) => ({
-    value: Number(match[1]),
-    unit: match[2] || "",
-  }));
+  ];
 
-  if (!numbers.length) {
+  if (!matches.length) {
     return null;
   }
 
-  function toMillion(item) {
-    if (!Number.isFinite(item.value)) {
+  function toMillion(
+    number,
+    unit
+  ) {
+    const numeric =
+      Number(number);
+
+    if (
+      !Number.isFinite(
+        numeric
+      )
+    ) {
       return null;
     }
 
-    if (item.unit === "میلیارد") {
-      return item.value * 1000;
+    if (
+      unit === "میلیارد"
+    ) {
+      return numeric * 1000;
     }
 
-    if (item.unit === "هزار") {
-      return item.value / 1000;
+    if (
+      unit === "میلیون"
+    ) {
+      return numeric;
     }
 
-    return item.value;
+    if (
+      unit === "هزار"
+    ) {
+      return numeric / 1000;
+    }
+
+    /*
+     * اگر واحد نوشته نشده باشد،
+     * از اندازه عدد تشخیص می‌دهیم.
+     *
+     * 20,000,000 تومان -> 20 میلیون
+     * 30,000,000 تومان -> 30 میلیون
+     * 500,000 تومان    -> 0.5 میلیون
+     */
+    if (numeric >= 1000000) {
+      return numeric / 1000000;
+    }
+
+    if (numeric >= 1000) {
+      return numeric / 1000;
+    }
+
+    /*
+     * اعداد کوچک‌تر را به عنوان
+     * میلیون در نظر می‌گیریم.
+     *
+     * مثال:
+     * 20 -> 20 میلیون
+     */
+    return numeric;
   }
 
-  const values = numbers
-    .map(toMillion)
+  const values = matches
+    .map((match) =>
+      toMillion(
+        match[1],
+        match[2] || ""
+      )
+    )
     .filter(
       (value) =>
         value !== null &&
@@ -401,7 +446,9 @@ function parseSalary(value) {
       min: values[0],
       max: values[1],
       average:
-        (values[0] + values[1]) / 2,
+        (values[0] +
+          values[1]) /
+        2,
     };
   }
 
