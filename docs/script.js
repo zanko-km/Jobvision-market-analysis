@@ -2051,7 +2051,9 @@ function renderSearchTable(
 
             <td>
               ${escapeHtml(
-                job.salary
+                parseSalary(
+                  job.salary
+                )
               )}
             </td>
 
