@@ -1946,6 +1946,21 @@ function renderSalaryChart(
    SEARCH TABLE
 ========================================================= */
 
+function formatSalary(value) {
+  const salary = parseSalary(value);
+
+  if (!salary) {
+    return "توافقی / نامشخص";
+  }
+
+  if (salary.min === salary.max) {
+    return `${formatNumber(salary.min)} میلیون تومان`;
+  }
+
+  return `${formatNumber(salary.min)} تا ${formatNumber(salary.max)} میلیون تومان`;
+}
+
+
 function renderSearchTable(
   jobs
 ) {
@@ -2051,9 +2066,7 @@ function renderSearchTable(
 
             <td>
               ${escapeHtml(
-                parseSalary(
-                  job.salary
-                )
+                formatSalary(job.salary)
               )}
             </td>
 
