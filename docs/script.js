@@ -26,8 +26,17 @@ let currentJobsPerPage =
   DEFAULT_JOBS_PER_PAGE;
 
 let OVERVIEW_JOBS = [];
+
 let currentSearchResults = [];
+
+let currentSearchSourceResults = [];
+
+let currentSearchQuery = "";
+let currentSearchTotal = 0;
+let currentSearchIsFallback = false;
+
 let currentSearchToken = 0;
+
 
 let activeSearchController = null;
 
@@ -164,6 +173,215 @@ function countValues(
     ? entries.slice(0, limit)
     : entries;
 }
+
+/* =========================================================
+   SEARCH FILTERS
+========================================================= */
+
+function getSelectedSearchFilters() {
+  return {
+    city:
+      normalizeText(
+        $("search-city-filter")?.value
+      ),
+
+    category:
+      normalizeText(
+        $("search-category-filter")?.value
+      ),
+  };
+}
+
+function getUniqueSortedValues(
+  jobs,
+  getter
+) {
+  const values = new Set();
+
+  for (const job of jobs) {
+    const items = valueToLabels(
+      getter(job)
+    );
+
+    for (const item of items) {
+      const normalized =
+        normalizeText(item);
+
+      if (normalized) {
+        values.add(normalized);
+      }
+    }
+  }
+
+  return [...values].sort(
+    (a, b) =>
+      a.localeCompare(
+        b,
+        "fa"
+      )
+  );
+}
+
+function populateSearchFilter(
+  selectId,
+  values,
+  defaultLabel,
+  selectedValue = ""
+) {
+  const select = $(selectId);
+
+  if (!select) {
+    return;
+  }
+
+  const validSelectedValue =
+    values.includes(
+      selectedValue
+    )
+      ? selectedValue
+      : "";
+
+  select.innerHTML = `
+    <option value="">
+      ${escapeHtml(
+        defaultLabel
+      )}
+    </option>
+
+    ${values
+      .map(
+        (value) => `
+          <option
+            value="${escapeHtml(
+              value
+            )}"
+            ${
+              value ===
+              validSelectedValue
+                ? "selected"
+                : ""
+            }
+          >
+            ${escapeHtml(
+              value
+            )}
+          </option>
+        `
+      )
+      .join("")}
+  `;
+}
+
+function populateSearchFilters(
+  jobs
+) {
+  const current =
+    getSelectedSearchFilters();
+
+  const cities =
+    getUniqueSortedValues(
+      jobs,
+      (job) =>
+        job.city
+    );
+
+  const categories =
+    getUniqueSortedValues(
+      jobs,
+      (job) =>
+        job.categories
+    );
+
+  populateSearchFilter(
+    "search-city-filter",
+    cities,
+    "همه شهرها",
+    current.city
+  );
+
+  populateSearchFilter(
+    "search-category-filter",
+    categories,
+    "همه دسته‌بندی‌ها",
+    current.category
+  );
+}
+
+function jobMatchesSearchFilters(
+  job,
+  filters
+) {
+  if (
+    filters.city &&
+    normalizeText(
+      job.city
+    ) !== filters.city
+  ) {
+    return false;
+  }
+
+  if (
+    filters.category
+  ) {
+    const categories =
+      valueToLabels(
+        job.categories
+      ).map(
+        normalizeText
+      );
+
+    if (
+      !categories.includes(
+        filters.category
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function applySearchFilters(
+  jobs
+) {
+  const filters =
+    getSelectedSearchFilters();
+
+  return jobs.filter(
+    (job) =>
+      jobMatchesSearchFilters(
+        job,
+        filters
+      )
+  );
+}
+
+function getSearchFilterDescription() {
+  const filters =
+    getSelectedSearchFilters();
+
+  const parts = [];
+
+  if (filters.city) {
+    parts.push(
+      `شهر: ${filters.city}`
+    );
+  }
+
+  if (filters.category) {
+    parts.push(
+      `دسته‌بندی: ${filters.category}`
+    );
+  }
+
+  if (!parts.length) {
+    return "";
+  }
+
+  return parts.join(" • ");
+}
+
 
 /* =========================================================
    CHARTS
@@ -1823,6 +2041,10 @@ function salaryAnalysisHtml(
    SEARCH CHARTS
 ========================================================= */
 
+/* =========================================================
+   SEARCH CHARTS
+========================================================= */
+
 function renderSearchCharts(
   jobs
 ) {
@@ -1835,6 +2057,12 @@ function renderSearchCharts(
 
   container.innerHTML = "";
 
+  const filters =
+    getSelectedSearchFilters();
+
+  /*
+   * Company
+   */
   makeBarChart(
     container,
     "🏢 برترین شرکت‌ها",
@@ -1846,18 +2074,29 @@ function renderSearchCharts(
     )
   );
 
-  makeBarChart(
-    container,
-    "📍 موقعیت مکانی",
-    countValues(
-      jobs,
-      (job) =>
-        job.city ||
-        job.province,
-      10
-    )
-  );
+  /*
+   * Location
+   *
+   * اگر شهر انتخاب شده باشد،
+   * این نمودار دیگر اطلاعات مفیدی ندارد.
+   */
+  if (!filters.city) {
+    makeBarChart(
+      container,
+      "📍 موقعیت مکانی",
+      countValues(
+        jobs,
+        (job) =>
+          job.city ||
+          job.province,
+        10
+      )
+    );
+  }
 
+  /*
+   * Seniority
+   */
   makeBarChart(
     container,
     "🎯 سطح تجربه",
@@ -1868,6 +2107,9 @@ function renderSearchCharts(
     )
   );
 
+  /*
+   * Work type
+   */
   makeBarChart(
     container,
     "📋 نوع همکاری",
@@ -1878,17 +2120,28 @@ function renderSearchCharts(
     )
   );
 
-  makeBarChart(
-    container,
-    "💼 دسته‌بندی شغلی",
-    countValues(
-      jobs,
-      (job) =>
-        job.categories,
-      10
-    )
-  );
+  /*
+   * Category
+   *
+   * اگر دسته‌بندی انتخاب شده باشد،
+   * این نمودار دیگر اطلاعات مفیدی ندارد.
+   */
+  if (!filters.category) {
+    makeBarChart(
+      container,
+      "💼 دسته‌بندی شغلی",
+      countValues(
+        jobs,
+        (job) =>
+          job.categories,
+        10
+      )
+    );
+  }
 
+  /*
+   * Remote
+   */
   const remoteCount =
     jobs.filter(
       (job) =>
@@ -2367,11 +2620,16 @@ function renderSearchTable(
    SEARCH RESULTS
 ========================================================= */
 
+/* =========================================================
+   SEARCH RESULTS
+========================================================= */
+
 function renderSearchResults(
   jobs,
   query,
   totalCount,
-  isFallback = false
+  isFallback = false,
+  sourceTotal = null
 ) {
   destroyCharts();
 
@@ -2396,6 +2654,15 @@ function renderSearchResults(
     );
   }
 
+  const backButton =
+    $("backBtn");
+
+  if (backButton) {
+    backButton.classList.remove(
+      "hidden"
+    );
+  }
+
   const container =
     $("search-results");
 
@@ -2403,12 +2670,50 @@ function renderSearchResults(
     return;
   }
 
+  const filters =
+    getSelectedSearchFilters();
+
+  const filterDescription =
+    getSearchFilterDescription();
+
+  const filterNote =
+    filterDescription
+      ? `
+        <br>
+        <small>
+          فیلترهای فعال:
+          ${escapeHtml(
+            filterDescription
+          )}
+        </small>
+      `
+      : "";
+
+  const fallbackNote =
+    isFallback
+      ? `
+        <br>
+        <small>
+          ⚠️ دسترسی زنده به JobVision ممکن نشد؛
+          نتایج از داده‌های ذخیره‌شده فیلتر شده‌اند.
+        </small>
+      `
+      : "";
+
   if (!jobs.length) {
     container.innerHTML = `
       <div class="info-box">
-        هیچ آگهی‌ای برای «${escapeHtml(
+
+        هیچ آگهی‌ای برای
+        «${escapeHtml(
           query
-        )}» پیدا نشد.
+        )}»
+
+        با فیلترهای انتخاب‌شده پیدا نشد.
+
+        ${filterNote}
+        ${fallbackNote}
+
       </div>
     `;
 
@@ -2433,22 +2738,25 @@ function renderSearchResults(
       ? Number(totalCount)
       : jobs.length;
 
-  const shownNote =
-    total > jobs.length
-      ? ` (${formatNumber(
-          jobs.length
-        )} آگهی برای تحلیل بارگذاری شده؛ مجموع نتایج: ${formatNumber(
-          total
-        )})`
-      : "";
+  const originalTotal =
+    Number.isFinite(
+      Number(sourceTotal)
+    )
+      ? Number(sourceTotal)
+      : total;
 
-  const fallbackNote =
-    isFallback
+  const filteredNote =
+    filterDescription &&
+    originalTotal !== jobs.length
       ? `
         <br>
         <small>
-          ⚠️ دسترسی زنده به JobVision ممکن نشد؛
-          نتایج زیر از داده‌های ذخیره‌شده فیلتر شده‌اند.
+          از ${formatNumber(
+            originalTotal
+          )} نتیجه جستجو،
+          ${formatNumber(
+            jobs.length
+          )} آگهی با فیلترهای انتخاب‌شده باقی مانده است.
         </small>
       `
       : "";
@@ -2462,7 +2770,9 @@ function renderSearchResults(
         query
       )}» پیدا شد
 
-      ${shownNote}
+      ${filterNote}
+
+      ${filteredNote}
 
       ${fallbackNote}
 
@@ -2505,6 +2815,88 @@ function renderSearchResults(
   renderSearchTable(
     jobs
   );
+}
+
+
+async function refreshFilteredSearch() {
+  if (
+    !currentSearchSourceResults.length
+  ) {
+    return;
+  }
+
+  /*
+   * Search token قبلی را invalidate می‌کنیم
+   * تا تحلیل مهارت قبلی دیگر نتواند UI را تغییر دهد.
+   */
+  ++currentSearchToken;
+
+  if (
+    activeSearchController
+  ) {
+    activeSearchController.abort();
+    activeSearchController =
+      null;
+  }
+
+  const filteredJobs =
+    applySearchFilters(
+      currentSearchSourceResults
+    );
+
+  /*
+   * UI نتایج بلافاصله با فیلتر جدید
+   * رندر می‌شود.
+   */
+  renderSearchResults(
+    filteredJobs,
+    currentSearchQuery,
+    filteredJobs.length,
+    currentSearchIsFallback,
+    currentSearchSourceResults.length
+  );
+
+  /*
+   * تحلیل مهارت باید فقط روی نتایج فیلترشده باشد.
+   */
+  if (!filteredJobs.length) {
+    return;
+  }
+
+  const controller =
+    new AbortController();
+
+  activeSearchController =
+    controller;
+
+  const searchToken =
+    currentSearchToken;
+
+  try {
+    await analyzeSearchSkills(
+      filteredJobs,
+      searchToken,
+      controller.signal
+    );
+  } catch (error) {
+    if (
+      error?.name !==
+      "AbortError"
+    ) {
+      console.error(
+        "Filtered skill analysis failed:",
+        error
+      );
+    }
+  } finally {
+    if (
+      activeSearchController ===
+      controller
+    ) {
+      activeSearchController =
+        null;
+    }
+  }
 }
 
 /* =========================================================
@@ -2888,7 +3280,9 @@ async function loadOverviewData() {
 
     OVERVIEW_JOBS =
       jobs;
-
+    populateSearchFilters(
+      jobs
+    );
     setUpdatedAt(
       payload?.generated_at,
       payload?.count ??
@@ -2992,6 +3386,10 @@ function updateSearchLoadingStatus(
    MAIN SEARCH
 ========================================================= */
 
+/* =========================================================
+   MAIN SEARCH
+========================================================= */
+
 async function doSearch() {
   const input =
     document.querySelector(
@@ -3008,9 +3406,6 @@ async function doSearch() {
     return;
   }
 
-  /*
-   * Abort previous search completely.
-   */
   if (
     activeSearchController
   ) {
@@ -3025,6 +3420,15 @@ async function doSearch() {
 
   const searchToken =
     ++currentSearchToken;
+
+  currentSearchQuery =
+    query;
+
+  currentSearchSourceResults =
+    [];
+
+  currentSearchResults =
+    [];
 
   showSearchLoading(
     query
@@ -3050,13 +3454,6 @@ async function doSearch() {
             return;
           }
 
-          /*
-           * IMPORTANT:
-           * Do NOT render the entire search UI
-           * on every page.
-           *
-           * Only update the loading text.
-           */
           if (complete) {
             updateSearchLoadingStatus(
               `جستجو کامل شد — ${formatNumber(
@@ -3095,28 +3492,53 @@ async function doSearch() {
     }
 
     /*
-     * Render exactly once after search finishes.
+     * همه نتایج Search را نگه می‌داریم.
+     * فیلترها روی این dataset اعمال می‌شوند.
+     */
+    currentSearchSourceResults =
+      result.jobs;
+
+    currentSearchTotal =
+      result.total;
+
+    currentSearchIsFallback =
+      false;
+
+    /*
+     * گزینه‌های فیلتر را با داده‌های واقعی
+     * همین Search به‌روزرسانی می‌کنیم.
+     */
+    populateSearchFilters(
+      result.jobs
+    );
+
+    const filteredJobs =
+      applySearchFilters(
+        result.jobs
+      );
+
+    /*
+     * فقط نتایج فیلترشده نمایش داده می‌شوند.
      */
     renderSearchResults(
-      result.jobs,
+      filteredJobs,
       query,
-      result.total
+      filteredJobs.length,
+      false,
+      result.jobs.length
     );
 
     updateSearchLoadingStatus(
       `جستجو کامل شد — ${formatNumber(
-        result.jobs.length
-      )} آگهی بارگذاری شد`
+        filteredJobs.length
+      )} آگهی مطابق فیلترها`
     );
 
     /*
-     * Skill analysis happens after
-     * search results are already visible.
-     *
-     * It is limited to MAX_SKILL_ANALYSIS_JOBS.
+     * Skill analysis فقط روی filteredJobs.
      */
     await analyzeSearchSkills(
-      result.jobs,
+      filteredJobs,
       searchToken,
       controller.signal
     );
@@ -3171,11 +3593,36 @@ async function doSearch() {
         }
       );
 
+    currentSearchSourceResults =
+      fallback;
+
+    currentSearchTotal =
+      fallback.length;
+
+    currentSearchIsFallback =
+      true;
+
+    populateSearchFilters(
+      fallback
+    );
+
+    const filteredFallback =
+      applySearchFilters(
+        fallback
+      );
+
     renderSearchResults(
-      fallback,
+      filteredFallback,
       query,
-      fallback.length,
-      true
+      filteredFallback.length,
+      true,
+      fallback.length
+    );
+
+    await analyzeSearchSkills(
+      filteredFallback,
+      searchToken,
+      controller.signal
     );
   } finally {
     if (
@@ -3206,8 +3653,26 @@ function goBackToOverview() {
   currentSearchResults =
     [];
 
+  currentSearchSourceResults =
+    [];
+
+  currentSearchQuery =
+    "";
+
+  currentSearchTotal =
+    0;
+
+  currentSearchIsFallback =
+    false;
+
   const input =
     $("search-input");
+
+  const cityFilter =
+    $("search-city-filter");
+
+  const categoryFilter =
+    $("search-category-filter");
 
   const backButton =
     $("backBtn");
@@ -3216,11 +3681,23 @@ function goBackToOverview() {
     input.value = "";
   }
 
+  if (cityFilter) {
+    cityFilter.value = "";
+  }
+
+  if (categoryFilter) {
+    categoryFilter.value = "";
+  }
+
   if (backButton) {
     backButton.classList.add(
       "hidden"
     );
   }
+
+  populateSearchFilters(
+    OVERVIEW_JOBS
+  );
 
   renderOverview(
     OVERVIEW_JOBS
@@ -3243,6 +3720,12 @@ document.addEventListener(
     const backButton =
       $("backBtn");
 
+    const cityFilter =
+      $("search-city-filter");
+
+    const categoryFilter =
+      $("search-category-filter");
+
     if (
       searchForm &&
       searchInput
@@ -3253,6 +3736,38 @@ document.addEventListener(
           event.preventDefault();
 
           await doSearch();
+        }
+      );
+    }
+
+    /*
+     * تغییر شهر
+     */
+    if (cityFilter) {
+      cityFilter.addEventListener(
+        "change",
+        async () => {
+          if (
+            currentSearchSourceResults.length
+          ) {
+            await refreshFilteredSearch();
+          }
+        }
+      );
+    }
+
+    /*
+     * تغییر دسته‌بندی
+     */
+    if (categoryFilter) {
+      categoryFilter.addEventListener(
+        "change",
+        async () => {
+          if (
+            currentSearchSourceResults.length
+          ) {
+            await refreshFilteredSearch();
+          }
         }
       );
     }

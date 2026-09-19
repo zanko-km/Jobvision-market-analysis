@@ -16,9 +16,47 @@
 </header>
 
 <form class="search-bar" id="search-form">
-  <input id="search-input" type="text" placeholder="عنوان شغلی یا شرکت... مثلاً Python Developer" />
-  <button id="searchBtn" type="submit">🔍 جستجو</button>
-  <button id="backBtn" type="button" class="hidden">← بازگشت به نمای کلی</button>
+  <input
+    id="search-input"
+    type="text"
+    placeholder="عنوان شغلی یا شرکت... مثلاً Python Developer"
+  />
+
+  <div class="search-filters">
+    <div class="filter-group">
+      <label for="search-city-filter">
+        📍 شهر
+      </label>
+
+      <select id="search-city-filter">
+        <option value="">همه شهرها</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="search-category-filter">
+        💼 دسته‌بندی شغلی
+      </label>
+
+      <select id="search-category-filter">
+        <option value="">همه دسته‌بندی‌ها</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="search-actions">
+    <button id="searchBtn" type="submit">
+      🔍 جستجو
+    </button>
+
+    <button
+      id="backBtn"
+      type="button"
+      class="hidden"
+    >
+      ← بازگشت به نمای کلی
+    </button>
+  </div>
 </form>
 
 <main id="app">

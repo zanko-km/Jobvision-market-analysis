@@ -59,15 +59,16 @@ body {
 
 .search-bar {
   display: flex;
-  gap: 8px;
-  max-width: 760px;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 900px;
   margin: 0 auto 28px;
 }
 
 .search-bar input {
-  flex: 1;
+  width: 100%;
   min-width: 0;
-  padding: 10px 14px;
+  padding: 11px 14px;
   border-radius: 8px;
   border: 1px solid #d9dce1;
   background: #fff;
@@ -81,10 +82,56 @@ body {
 
 .search-bar input:focus {
   border-color: #ff4b4b;
-  box-shadow: 0 0 0 3px rgba(255, 75, 75, 0.1);
+  box-shadow:
+    0 0 0 3px rgba(255, 75, 75, 0.1);
 }
 
-.search-bar button {
+.search-filters {
+  display: grid;
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.filter-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+}
+
+.filter-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d9dce1;
+  background: #fff;
+  color: #1e2327;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.filter-group select:focus {
+  border-color: #ff4b4b;
+  box-shadow:
+    0 0 0 3px rgba(255, 75, 75, 0.1);
+}
+
+.search-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.search-actions button {
   flex: 0 0 auto;
   padding: 10px 17px;
   border-radius: 8px;
@@ -98,23 +145,23 @@ body {
     transform 0.1s ease;
 }
 
-.search-bar button:hover {
+.search-actions button:hover {
   background: #ef3f3f;
 }
 
-.search-bar button:active {
+.search-actions button:active {
   transform: translateY(1px);
 }
 
-.search-bar button.hidden {
+.search-actions button.hidden {
   display: none !important;
 }
 
-.search-bar #backBtn {
+.search-actions #backBtn {
   background: #555;
 }
 
-.search-bar #backBtn:hover {
+.search-actions #backBtn:hover {
   background: #444;
 }
 
@@ -580,8 +627,21 @@ tbody tr:hover {
   }
 
   .search-bar {
-    flex-wrap: wrap;
+    gap: 9px;
     margin-bottom: 22px;
+  }
+
+  .search-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .search-actions {
+    width: 100%;
+  }
+
+  .search-actions button {
+    flex: 1;
+    min-width: 0;
   }
 
   .search-bar input {
